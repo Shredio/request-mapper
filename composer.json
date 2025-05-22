@@ -1,0 +1,31 @@
+{
+	"name": "shredio/request-mapper",
+	"type": "library",
+	"license": "MIT",
+	"require": {
+		"php": ">=8.3",
+		"shipmonk/input-mapper": "^0.9.0"
+	},
+	"autoload": {
+		"psr-4": {
+			"Shredio\\RequestMapper\\": "src/"
+		}
+	},
+	"autoload-dev": {
+		"psr-4": {
+			"Tests\\": "tests"
+		}
+	},
+	"scripts": {
+		"phpstan": "phpstan analyse",
+		"test": "vendor/bin/phpunit tests"
+	},
+	"require-dev": {
+		"phpstan/phpstan": "^2.1",
+		"phpunit/phpunit": "^12.1",
+		"symfony/http-foundation": "^7.2",
+		"symfony/object-mapper": "v7.3.0-BETA2",
+		"jolicode/automapper": "^9.3",
+		"symfony/framework-bundle": "^7.2"
+	}
+}
