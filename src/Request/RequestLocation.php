@@ -1,18 +1,15 @@
 <?php declare(strict_types = 1);
 
-namespace Shredio\RequestMapper\Enum;
+namespace Shredio\RequestMapper\Request;
 
 enum RequestLocation
 {
 
-	/** $_GET */
+	case Path;
 	case Query;
-	/** $_POST */
 	case Body;
-	/** $_SERVER */
 	case Header;
 	case Attribute;
-	/** $_SERVER */
 	case Server;
 
 }

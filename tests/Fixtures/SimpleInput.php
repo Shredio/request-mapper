@@ -1,12 +1,13 @@
 <?php declare(strict_types = 1);
 
-namespace Tests\Common;
+namespace Tests\Fixtures;
 
-final readonly class ArticleTagInput
+final readonly class SimpleInput
 {
 
 	public function __construct(
 		public string $name,
+		public int $age = 25,
 	)
 	{
 	}
