@@ -5,7 +5,7 @@
 	"require": {
 		"php": ">=8.3",
 		"shipmonk/input-mapper": "^0.9.0",
-		"shredio/problem": ">=1.4"
+		"shredio/problem": ">=1.4.1"
 	},
 	"autoload": {
 		"psr-4": {
