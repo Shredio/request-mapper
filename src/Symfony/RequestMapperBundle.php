@@ -16,7 +16,7 @@ final class RequestMapperBundle extends AbstractBundle
 	public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
 	{
 		$services = $container->services();
-		$services->set('shredio.request_mapper', RequestMapper::class)
+		$services->set(RequestMapper::class)
 			->autowire();
 		$services->set('shredio.controller_argument_resolver', MapFromRequestControllerArgumentResolver::class)
 			->autowire()
