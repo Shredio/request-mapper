@@ -86,7 +86,7 @@ final readonly class RequestMapper
 			}
 
 			throw new InvalidRequestException($type, [
-				new FieldViolation($path, [$this->getMissingFieldMessage()])
+				new FieldViolation($path, [$this->getMissingFieldMessage()]),
 			]);
 		}
 
@@ -98,7 +98,7 @@ final readonly class RequestMapper
 			}
 
 			throw new InvalidRequestException($type, [
-				new FieldViolation($path, [$this->getMissingFieldMessage()])
+				new FieldViolation($path, [$this->getMissingFieldMessage()]),
 			]);
 		}
 
@@ -159,8 +159,9 @@ final readonly class RequestMapper
 		$violations = [];
 
 		if ($exception instanceof ExtraAttributesException) {
+			/** @var string|int $attribute */
 			foreach ($exception->getExtraAttributes() as $attribute) {
-				$violations[] = new FieldViolation($attribute, [$this->getExtraFieldMessage()]);
+				$violations[] = new FieldViolation((string) $attribute, [$this->getExtraFieldMessage()]);
 			}
 		} else if ($exception instanceof MissingConstructorArgumentsException) {
 			foreach ($exception->getMissingConstructorArguments() as $argument) {
