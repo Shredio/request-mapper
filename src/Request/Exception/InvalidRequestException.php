@@ -2,8 +2,8 @@
 
 namespace Shredio\RequestMapper\Request\Exception;
 
-use RuntimeException;
 use Shredio\Problem\Violation\Violation;
+use Shredio\RequestMapper\Exception\RuntimeException;
 use Throwable;
 
 final class InvalidRequestException extends RuntimeException
