@@ -120,4 +120,44 @@ final class StringBodyFromRequestControllerArgumentResolverTest extends TestCase
 		self::assertSame($jsonContent, $result[0]);
 	}
 
+	public function testResolveWithTrimEnabled(): void
+	{
+		$request = Request::create('/test', 'POST', [], [], [], [], '  trimmed content  ');
+		
+		$argument = new ArgumentMetadata(
+			'body',
+			'string',
+			false,
+			false,
+			null,
+			false,
+			[new StringBodyFromRequest(trim: true)]
+		);
+
+		$result = iterator_to_array($this->resolver->resolve($request, $argument));
+
+		self::assertCount(1, $result);
+		self::assertSame('trimmed content', $result[0]);
+	}
+
+	public function testResolveWithTrimDisabled(): void
+	{
+		$request = Request::create('/test', 'POST', [], [], [], [], '  untrimmed content  ');
+		
+		$argument = new ArgumentMetadata(
+			'body',
+			'string',
+			false,
+			false,
+			null,
+			false,
+			[new StringBodyFromRequest(trim: false)]
+		);
+
+		$result = iterator_to_array($this->resolver->resolve($request, $argument));
+
+		self::assertCount(1, $result);
+		self::assertSame('  untrimmed content  ', $result[0]);
+	}
+
 }

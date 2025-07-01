@@ -25,6 +25,10 @@ final readonly class StringBodyFromRequestControllerArgumentResolver implements 
 
 		$content = $request->getContent();
 
+		if ($attribute->trim) {
+			$content = trim($content);
+		}
+
 		if ($content === '' && !$argument->isNullable()) {
 			throw new MissingHttpBodyException($argument->getName());
 		}

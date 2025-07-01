@@ -7,4 +7,11 @@ use Attribute;
 #[Attribute(Attribute::TARGET_PARAMETER)]
 final readonly class StringBodyFromRequest
 {
+
+	public function __construct(
+		public bool $trim = false,
+	)
+	{
+	}
+
 }
