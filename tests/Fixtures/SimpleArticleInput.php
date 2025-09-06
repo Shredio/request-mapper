@@ -2,16 +2,17 @@
 
 namespace Tests\Fixtures;
 
-use Shredio\RequestMapper\Attribute\InPath;
-use Shredio\RequestMapper\Attribute\InQuery;
+use ShipMonk\InputMapper\Compiler\Mapper\Optional;
 
 final readonly class SimpleArticleInput
 {
 
 	public function __construct(
-		#[InPath] public int $id,
-		#[InQuery] public string $category = 'general',
-		#[InQuery] public bool $published = true,
+		public int $id,
+		#[Optional(default: 'general')]
+		public string $category = 'general',
+		#[Optional(default: true)]
+		public bool $published = true,
 	)
 	{
 	}

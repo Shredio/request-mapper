@@ -2,17 +2,14 @@
 
 namespace Tests\Unit;
 
+use ShipMonk\InputMapper\Runtime\MapperProvider;
+use Shredio\RequestMapper\Attribute\RequestParam;
+use Shredio\RequestMapper\Mapper\Shipmonk\ShipmonkRequestObjectMapper;
 use Shredio\RequestMapper\Request\RequestLocation;
 use Shredio\RequestMapper\Request\SymfonyRequestContext;
 use Shredio\RequestMapper\RequestMapper;
+use Shredio\RequestMapper\Filter\FilterVar;
 use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\Serializer\Mapping\Factory\ClassMetadataFactory;
-use Symfony\Component\Serializer\Mapping\Loader\AttributeLoader;
-use Symfony\Component\Serializer\Normalizer\ArrayDenormalizer;
-use Symfony\Component\Serializer\Normalizer\BackedEnumNormalizer;
-use Symfony\Component\Serializer\Normalizer\DateTimeNormalizer;
-use Symfony\Component\Serializer\Normalizer\ObjectNormalizer;
-use Symfony\Component\Serializer\Serializer;
 use Tests\Fixtures\ComplexInput;
 use Tests\TestCase;
 
@@ -23,15 +20,7 @@ final class ComplexMappingTest extends TestCase
 
 	protected function setUp(): void
 	{
-		$normalizers = [
-			new ArrayDenormalizer(),
-			new DateTimeNormalizer(),
-			new BackedEnumNormalizer(),
-			new ObjectNormalizer(new ClassMetadataFactory(new AttributeLoader())),
-		];
-
-		$serializer = new Serializer($normalizers);
-		$this->mapper = new RequestMapper($serializer);
+		$this->mapper = new RequestMapper(new ShipmonkRequestObjectMapper(new MapperProvider(__DIR__ . '/../var/shipmonk', true)));
 	}
 
 	public function testMapFromAllLocations(): void
@@ -48,7 +37,15 @@ final class ComplexMappingTest extends TestCase
 		$request->attributes->set('pathId', '123');
 		$request->attributes->set('customPathName', 'custom_path');
 
-		$context = new SymfonyRequestContext($request, RequestLocation::Body);
+		$context = new SymfonyRequestContext($request, [
+			'pathId' => new RequestParam(location: RequestLocation::Route, filter: FilterVar::Int),
+			'queryParam' => new RequestParam(location: RequestLocation::Query),
+			'headerValue' => new RequestParam(location: RequestLocation::Header),
+			'attributeValue' => new RequestParam(location: RequestLocation::Attribute),
+			'serverHost' => new RequestParam('HTTP_HOST', RequestLocation::Server),
+			'customPath' => new RequestParam('customPathName', RequestLocation::Route),
+			'customQuery' => new RequestParam('customQueryName', RequestLocation::Query, filter: FilterVar::Int),
+		]);
 
 		$result = $this->mapper->map(ComplexInput::class, $context);
 

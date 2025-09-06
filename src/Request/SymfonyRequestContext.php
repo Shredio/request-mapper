@@ -2,21 +2,35 @@
 
 namespace Shredio\RequestMapper\Request;
 
+use Shredio\RequestMapper\Attribute\RequestParam;
 use Symfony\Component\HttpFoundation\Request;
 
 final readonly class SymfonyRequestContext implements RequestContext
 {
 
+	private RequestLocation $location;
+
 	/**
 	 * @param class-string|null $mediatorClass
+	 * @param array<non-empty-string, RequestParam|RequestLocation> $paramConfig
 	 */
 	public function __construct(
 		private Request $request,
-		private ?RequestLocation $location = null,
+		private array $paramConfig = [],
+		?RequestLocation $location = null,
 		private ?string $mediatorClass = null,
 		private ?string $path = null,
 	)
 	{
+		$this->location = $location ?? self::determineDefaultRequestLocation($this->request);
+	}
+
+	/**
+	 * @return array<non-empty-string, RequestParam|RequestLocation>
+	 */
+	public function getParamConfigs(): array
+	{
+		return $this->paramConfig;
 	}
 
 	public function getMediatorClass(): ?string
@@ -26,30 +40,63 @@ final readonly class SymfonyRequestContext implements RequestContext
 
 	public function getDefaultRequestLocation(): RequestLocation
 	{
-		if ($this->location) {
-			return $this->location;
-		}
+		return $this->location;
+	}
 
-		return match ($this->request->getMethod()) {
+	public function isTypeStrictByRequestLocation(RequestLocation $location): bool
+	{
+		return $location === RequestLocation::Body;
+	}
+
+	public function getRequestValues(): array
+	{
+		return $this->getRequestValuesByLocation($this->getDefaultRequestLocation());
+	}
+
+	public function getRequestValuesByLocation(RequestLocation $location): array
+	{
+		return self::getValuesFromRequest($this->request, $location);
+	}
+
+	/**
+	 * @return mixed[]
+	 */
+	public static function getValuesFromRequest(Request $request, RequestLocation $location): array
+	{
+		return match ($location) {
+			RequestLocation::Body => $request->getPayload()->all(),
+			RequestLocation::Attribute, RequestLocation::Route => $request->attributes->all(),
+			RequestLocation::Query => $request->query->all(),
+			RequestLocation::Header => $request->headers->all(),
+			RequestLocation::Server => $request->server->all(),
+		};
+	}
+
+	public static function determineDefaultRequestLocation(Request $request): RequestLocation
+	{
+		return match ($request->getMethod()) {
 			'POST', 'PATCH', 'PUT' => RequestLocation::Body,
 			default => RequestLocation::Query,
 		};
 	}
 
-	public function getRequestValues(): RequestValues
+	public function normalizeKey(string $key, RequestLocation $location): string
 	{
-		return $this->getRequestValuesByLocation($this->getDefaultRequestLocation());
+		if ($location === RequestLocation::Header) {
+			return strtolower($key);
+		}
+
+		return $key;
 	}
 
-	public function getRequestValuesByLocation(RequestLocation $location): RequestValues
+	public function filterValue(mixed $value, RequestLocation $location): mixed
 	{
-		return match ($location) {
-			RequestLocation::Body => new RequestValues($this->request->getPayload()->all()),
-			RequestLocation::Attribute, RequestLocation::Path => new RequestValues($this->request->attributes->all()),
-			RequestLocation::Query => new RequestValues($this->request->query->all(), true),
-			RequestLocation::Header => new RequestHeaderValues($this->request->headers->all(), true),
-			RequestLocation::Server => new RequestValues($this->request->server->all()),
-		};
+		if ($location === RequestLocation::Header && is_array($value)) {
+			// Symfony returns headers as array, but we want single value
+			return implode(', ', $value);
+		}
+
+		return $value;
 	}
 
 	public function getPath(): ?string

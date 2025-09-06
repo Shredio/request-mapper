@@ -2,14 +2,15 @@
 
 namespace Tests\Fixtures;
 
-use Shredio\RequestMapper\Attribute\InBody;
+use ShipMonk\InputMapper\Compiler\Mapper\Optional;
 
 final readonly class SimpleBodyInput
 {
 
 	public function __construct(
-		#[InBody] public string $title,
-		#[InBody] public string $content = 'default content',
+		public string $title,
+		#[Optional(default: 'default content')]
+		public string $content = 'default content',
 	)
 	{
 	}

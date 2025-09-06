@@ -5,7 +5,7 @@ namespace Shredio\RequestMapper\Request;
 enum RequestLocation
 {
 
-	case Path;
+	case Route;
 	case Query;
 	case Body;
 	case Header;

@@ -2,17 +2,17 @@
 
 namespace Tests\Fixtures;
 
-use Shredio\RequestMapper\Attribute\InHeader;
-use Shredio\RequestMapper\Attribute\InPath;
-use Shredio\RequestMapper\Attribute\InQuery;
+use ShipMonk\InputMapper\Compiler\Mapper\Optional;
 
 final readonly class UserInput
 {
 
 	public function __construct(
-		#[InPath('userId')] public int $id,
-		#[InQuery] public string $filter = '',
-		#[InHeader('X-API-Key')] public string $apiKey = '',
+		public int $id,
+		#[Optional(default: '')]
+		public string $filter = '',
+		#[Optional(default: '')]
+		public string $apiKey = '',
 	)
 	{
 	}

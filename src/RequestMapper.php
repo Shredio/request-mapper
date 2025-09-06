@@ -2,35 +2,41 @@
 
 namespace Shredio\RequestMapper;
 
-use LogicException;
 use ReflectionClass;
+use ReflectionNamedType;
 use ReflectionParameter;
-use Shredio\Problem\Violation\FieldViolation;
-use Shredio\Problem\Violation\GlobalViolation;
-use Shredio\RequestMapper\Attribute\InAttribute;
-use Shredio\RequestMapper\Attribute\InBody;
-use Shredio\RequestMapper\Attribute\InHeader;
-use Shredio\RequestMapper\Attribute\InPath;
-use Shredio\RequestMapper\Attribute\InQuery;
-use Shredio\RequestMapper\Attribute\InServer;
+use ReflectionType;
+use Shredio\Problem\Exception\ViolationAwareException;
+use Shredio\RequestMapper\Attribute\RequestParam;
+use Shredio\RequestMapper\Error\RequestMapperErrorCollector;
+use Shredio\RequestMapper\Error\RequestMapperErrorFactory;
+use Shredio\RequestMapper\Exception\InvalidPropertyException;
+use Shredio\RequestMapper\Exception\LogicException;
+use Shredio\RequestMapper\Exception\FieldNotExistsException;
+use Shredio\RequestMapper\Field\Field;
+use Shredio\RequestMapper\Filter\FilterVar;
+use Shredio\RequestMapper\Mapper\ExternalPropertyMapper;
+use Shredio\RequestMapper\Mapper\FilterVarPropertyMapper;
+use Shredio\RequestMapper\Mapper\PropertyMapper;
+use Shredio\RequestMapper\Mapper\RequestValueMapper;
 use Shredio\RequestMapper\Request\Exception\InvalidRequestException;
 use Shredio\RequestMapper\Request\RequestContext;
 use Shredio\RequestMapper\Request\RequestLocation;
-use Symfony\Component\Serializer\Exception\ExceptionInterface;
-use Symfony\Component\Serializer\Exception\ExtraAttributesException;
-use Symfony\Component\Serializer\Exception\MissingConstructorArgumentsException;
-use Symfony\Component\Serializer\Exception\PartialDenormalizationException;
-use Symfony\Component\Serializer\Normalizer\AbstractNormalizer;
-use Symfony\Component\Serializer\Normalizer\DenormalizerInterface;
-use Symfony\Contracts\Translation\TranslatorInterface;
+use Shredio\RequestMapper\Request\RequestValues;
+use Symfony\Component\DependencyInjection\Attribute\AutowireIterator;
+use Throwable;
 
 final readonly class RequestMapper
 {
 
+	/**
+	 * @param iterable<RequestValueMapper<object>> $valueMappers
+	 */
 	public function __construct(
-		private DenormalizerInterface $denormalizer,
+		private RequestObjectMapper $requestObjectMapper,
 		private ?RequestMediatorMapper $requestMediatorMapper = null,
-		private ?TranslatorInterface $translator = null,
+		#[AutowireIterator(tag: 'request_value_mapper')]
+		private iterable $valueMappers = [],
 	)
 	{
 	}
@@ -45,19 +51,28 @@ final readonly class RequestMapper
 	public function map(string $target, RequestContext $context): object
 	{
 		$mediator = $context->getMediatorClass();
-		$requestValues = $context->getRequestValues();
-		$values = $requestValues->values;
-		$typeless = $requestValues->typeless;
+		$mapToObjectContext = new RequestObjectMapperContext();
+		$getViolations = RequestMapperErrorCollector::capture();
 
-		[$values, $typeless] = $this->processParameterAttributes($mediator ?? $target, $context, $values, $typeless);
+		try {
+			$values = new RequestValues($context->getRequestValues(), $this->needToUseObjectMapper($context));
+			$this->run($mediator ?? $target, $context, $values, $mapToObjectContext);
+		} catch (Throwable $exception) { // @phpstan-ignore catch.neverThrown (unexpected exception can be thrown in value mappers, filters, etc)
+			// cleanup errors collected during processing
+			$getViolations();
+			throw $exception;
+		}
 
-		$output = $this->denormalize($values, $mediator ?? $target, $typeless, [
-			AbstractNormalizer::REQUIRE_ALL_PROPERTIES => true,
-			AbstractNormalizer::ALLOW_EXTRA_ATTRIBUTES => $context->isExtraParametersAllowed(),
-			DenormalizerInterface::COLLECT_DENORMALIZATION_ERRORS => true,
-		]);
+		$violations = $getViolations();
+		if ($violations) {
+			throw new InvalidRequestException($target, $violations);
+		}
 
-		assert(is_object($output));
+		if ($values->needToUseObjectMapper) {
+			$output = $this->mapToObject($mediator ?? $target, $values->all(), $mapToObjectContext);
+		} else {
+			$output = $this->createOutput($target, $values);
+		}
 
 		if ($mediator === null) {
 			/** @var T */
@@ -72,193 +87,314 @@ final readonly class RequestMapper
 	}
 
 	/**
-	 * @throws InvalidRequestException
-	 */
-	public function mapSimpleType(string $type, bool $nullable, string $defaultPath, RequestContext $context): mixed
-	{
-		$requestValues = $context->getRequestValues();
-		$values = $requestValues->values;
-		$path = $context->getPath() ?? $defaultPath;
-
-		if (!array_key_exists($path, $values)) {
-			if ($nullable) {
-				return null;
-			}
-
-			throw new InvalidRequestException($type, [
-				new FieldViolation($path, [$this->getMissingFieldMessage()]),
-			]);
-		}
-
-		$value = $values[$path];
-
-		if ($value === null) {
-			if ($nullable) {
-				return null;
-			}
-
-			throw new InvalidRequestException($type, [
-				new FieldViolation($path, [$this->getMissingFieldMessage()]),
-			]);
-		}
-
-		return $this->denormalize($value, $type, $requestValues->typeless);
-	}
-
-	/**
-	 * @param mixed[] $context
-	 * @throws InvalidRequestException
-	 */
-	private function denormalize(mixed $value, string $type, bool $typeless, array $context = []): mixed
-	{
-		try {
-			return $this->denormalizer->denormalize($value, $type, $typeless ? 'csv' : null, $context);
-		} catch (ExceptionInterface $exception) {
-			$violations = $this->extractViolationsFromException($exception);
-
-			if ($violations !== []) {
-				throw new InvalidRequestException($type, $violations, $exception);
-			}
-
-			throw $exception;
-		}
-	}
-
-	private function getInvalidTypeMessage(string $type): string
-	{
-		return $this->translate('This value should be of type {{ type }}.', ['{{ type }}' => $type]);
-	}
-
-	private function getMissingFieldMessage(): string
-	{
-		return $this->translate('This field is missing.');
-	}
-
-	private function getExtraFieldMessage(): string
-	{
-		return $this->translate('This field is not allowed.');
-	}
-
-	/**
-	 * @param array<string, string> $parameters
-	 */
-	private function translate(string $message, array $parameters = []): string
-	{
-		if ($this->translator !== null) {
-			return $this->translator->trans($message, $parameters);
-		}
-
-		return strtr($message, $parameters);
-	}
-
-	/**
-	 * @return list<FieldViolation|GlobalViolation>
-	 */
-	private function extractViolationsFromException(ExceptionInterface $exception): array
-	{
-		$violations = [];
-
-		if ($exception instanceof ExtraAttributesException) {
-			/** @var string|int $attribute */
-			foreach ($exception->getExtraAttributes() as $attribute) {
-				$violations[] = new FieldViolation((string) $attribute, [$this->getExtraFieldMessage()]);
-			}
-		} else if ($exception instanceof MissingConstructorArgumentsException) {
-			foreach ($exception->getMissingConstructorArguments() as $argument) {
-				$violations[] = new FieldViolation($argument, [$this->getMissingFieldMessage()]);
-			}
-		} else if ($exception instanceof PartialDenormalizationException) {
-			foreach ($exception->getErrors() as $error) {
-				$originalMessage = $error->getMessage();
-				$path = $error->getPath();
-
-				if (str_contains($originalMessage, 'because the class misses the')) {
-					// This is a special case for missing constructor arguments
-					$messages = [$this->getMissingFieldMessage()];
-				} else {
-					$type = implode('|', $error->getExpectedTypes() ?? ['?']);
-					$messages = [$this->getInvalidTypeMessage($type)];
-				}
-
-				if ($path === null) {
-					$violations[] = new GlobalViolation($messages);
-				} else {
-					$violations[] = new FieldViolation($path, $messages);
-				}
-			}
-		}
-
-		return $violations;
-	}
-
-	/**
-	 * @param class-string $target
+	 * @template T of object
+	 * @param class-string<T> $className
 	 * @param mixed[] $values
-	 * @return array{mixed[], bool}
+	 * @return T
+	 *
+	 * @throws InvalidRequestException
 	 */
-	private function processParameterAttributes(string $target, RequestContext $context, array $values, bool $typeless): array
+	private function mapToObject(string $className, array $values, RequestObjectMapperContext $context): object
 	{
-		$reflection = new ReflectionClass($target);
-		$constructor = $reflection->getConstructor();
-		$defaultLocation = $context->getDefaultRequestLocation();
+		return $this->requestObjectMapper->map($className, $values, $context);
+	}
 
+	/**
+	 * @param class-string $targetClass
+	 */
+	private function run(
+		string $targetClass,
+		RequestContext $context,
+		RequestValues $values,
+		RequestObjectMapperContext $objectMapperContext,
+	): void
+	{
+		$paramConfigs = $context->getParamConfigs();
+
+		if (!$values->needToUseObjectMapper) {
+			$this->typeless($targetClass, $context, $values, $paramConfigs, $objectMapperContext);
+		} else {
+			foreach ($paramConfigs as $targetKey => $paramConfig) {
+				$this->paramConfig($targetClass, $targetKey, $paramConfig, $context, $values, $objectMapperContext);
+			}
+		}
+	}
+
+	/**
+	 * @param class-string $targetClass
+	 * @param array<string, RequestParam|RequestLocation> $paramConfigs
+	 */
+	private function typeless(
+		string $targetClass,
+		RequestContext $context,
+		RequestValues $values,
+		array $paramConfigs,
+		RequestObjectMapperContext $objectMapperContext,
+	): void
+	{
+		$reflectionClass = new ReflectionClass($targetClass);
+		if ($reflectionClass->isAbstract()) {
+			throw new LogicException(sprintf(
+				'Class %s is abstract, but it is required for mapping.',
+				$targetClass,
+			));
+		}
+
+		$constructor = $reflectionClass->getConstructor();
 		if ($constructor === null) {
-			return [$values, $typeless];
+			throw new LogicException(sprintf(
+				'Class %s has no constructor, but it is required for mapping.',
+				$targetClass,
+			));
+		}
+		if (!$constructor->isPublic()) {
+			throw new LogicException(sprintf(
+				'Constructor of class %s is not public, but it is required for mapping.',
+				$targetClass,
+			));
 		}
 
 		foreach ($constructor->getParameters() as $parameter) {
-			$locationInfo = $this->getParameterLocationInfo($parameter);
-
-			if ($locationInfo === null) {
-				$location = $defaultLocation;
-				$sourceKey = null;
-			} else {
-				[$location, $sourceKey] = $locationInfo;
+			$parameterName = $parameter->getName();
+			if (isset($paramConfigs[$parameterName])) {
+				$this->paramConfig($targetClass, $parameterName, $paramConfigs[$parameterName], $context, $values, $objectMapperContext, $parameter);
+				continue;
 			}
 
-			$requestValues = $context->getRequestValuesByLocation($location);
-			$key = $sourceKey ?? $parameter->getName();
-
-			if ($requestValues->typeless) {
-				$typeless = true;
+			$reflectionType = $this->getTypeFromReflection($targetClass, $parameter);
+			if (!$values->has($parameterName)) {
+				$this->defaultValue($values, $parameter, $parameterName);
+				continue;
 			}
 
-			if ($requestValues->hasKey($key)) {
-				$values[$parameter->getName()] = $requestValues->getValue($key);
-			} else {
-				unset($values[$parameter->getName()]); // override the value and eventually exception will be thrown later
+			$typeName = $this->stringifyReflectionType($reflectionType);
+			$mapper = $this->getMapperByReflectionType($reflectionType);
+			if ($mapper === null) {
+				throw new LogicException(sprintf(
+					'Parameter %s of class %s has unsupported type %s, use parameter configuration to specify behavior or add a custom value mapper.',
+					$parameterName,
+					$targetClass,
+					$this->stringifyReflectionType($reflectionType),
+				));
 			}
+
+			try {
+				$sourceValue = $values->get($parameterName);
+				$sourceValue = $mapper->tryToConvertToScalar($sourceValue, $typeName); // typeless
+				$value = $mapper->convert($sourceValue, $typeName);
+			} catch (InvalidPropertyException|ViolationAwareException $exception) {
+				foreach ($exception->getViolations($parameterName) as $violation) {
+					RequestMapperErrorCollector::addViolation($violation);
+				}
+
+				continue;
+			}
+
+			$values->set($parameterName, $value);
 		}
-
-		return [$values, $typeless];
 	}
 
 	/**
-	 * @return array{RequestLocation, string|null}|null
+	 * @param class-string $targetClass
 	 */
-	private function getParameterLocationInfo(ReflectionParameter $parameter): ?array
+	private function paramConfig(
+		string $targetClass,
+		string $targetFieldName,
+		RequestParam|RequestLocation $config,
+		RequestContext $context,
+		RequestValues $values,
+		RequestObjectMapperContext $objectMapperContext,
+		?ReflectionParameter $parameter = null,
+	): bool
 	{
-		$attributes = $parameter->getAttributes();
+		$paramConfig = $config instanceof RequestLocation ? new RequestParam(location: $config) : $config;
+		$paramLocation = $paramConfig->location ?? $context->getDefaultRequestLocation();
 
-		foreach ($attributes as $attribute) {
-			$instance = $attribute->newInstance();
+		// fields
+		$targetField = Field::create($targetFieldName);
+		if ($paramConfig->sourceKey !== null) {
+			$objectMapperContext->addParameterNameMapping($paramConfig->sourceKey, $targetFieldName);
+			$sourceField = Field::create($context->normalizeKey($paramConfig->sourceKey, $paramLocation));
+		} else {
+			$sourceField = Field::create($context->normalizeKey($targetFieldName, $paramLocation));
+		}
 
-			$result = match (true) {
-				$instance instanceof InPath => [RequestLocation::Path, $instance->name],
-				$instance instanceof InQuery => [RequestLocation::Query, $instance->name],
-				$instance instanceof InBody => [RequestLocation::Body, $instance->name],
-				$instance instanceof InHeader => [RequestLocation::Header, $instance->name],
-				$instance instanceof InAttribute => [RequestLocation::Attribute, $instance->name],
-				$instance instanceof InServer => [RequestLocation::Server, $instance->name],
-				default => null,
-			};
-
-			if ($result !== null) {
-				return $result;
+		// get value
+		$fieldName = $sourceField->getFullPath();
+		try {
+			$sourceValue = $sourceField->getValueFrom($context->getRequestValuesByLocation($paramLocation));
+		} catch (FieldNotExistsException) {
+			if ($parameter === null) {
+				return false;
 			}
+
+			return $this->defaultValue($values, $parameter, $targetField, $fieldName);
+		}
+
+		$sourceValue = $context->filterValue($sourceValue, $paramLocation);
+		$filter = $paramConfig->getFilter();
+		if ($filter !== null) {
+			$mapper = new FilterVarPropertyMapper($filter);
+			$typeName = $filter->getType();
+		} else if ($parameter !== null) {
+			$type = $this->getTypeFromReflection($targetClass, $parameter);
+			$mapper = $this->getMapperByReflectionType($type);
+			if ($mapper === null) {
+				throw new LogicException(sprintf(
+					'Parameter %s of class %s has unsupported type %s, use parameter configuration to specify behavior or add a custom value mapper.',
+					$parameter->getName(),
+					$targetClass,
+					$this->stringifyReflectionType($type),
+				));
+			}
+
+			$typeName = $this->stringifyReflectionType($type);
+		} else {
+			throw new LogicException(sprintf(
+				'Parameter %s of class %s has unsupported type, use parameter configuration to specify behavior.',
+				$sourceField->getFullPath(),
+				$targetClass,
+			));
+		}
+
+		if ($values->needToUseObjectMapper) {
+			$values->set($targetField, $mapper->tryToConvertToScalar($sourceValue, $typeName));
+			return true; // pass to object mapper
+		}
+
+		$isTypeStrict = $context->isTypeStrictByRequestLocation($paramLocation);
+		if (!$isTypeStrict) {
+			$sourceValue = $mapper->tryToConvertToScalar($sourceValue, $typeName); // typeless
+		}
+
+		try {
+			$values->set($targetField, $mapper->convert($sourceValue, $typeName));
+		} catch (InvalidPropertyException|ViolationAwareException $exception) {
+			foreach ($exception->getViolations($sourceField->getFullPath()) as $violation) {
+				RequestMapperErrorCollector::addViolation($violation);
+			}
+
+			return false;
+		}
+
+		return true;
+	}
+
+	private function defaultValue(RequestValues $values, ReflectionParameter $parameter, string|Field $target, ?string $source = null): bool
+	{
+		if ($parameter->isDefaultValueAvailable()) {
+			$values->set($target, $parameter->getDefaultValue());
+
+			return true;
+		}
+
+		RequestMapperErrorCollector::addViolation(RequestMapperErrorFactory::missingField($this->stringifyField($source ?? $target)));
+		return false;
+	}
+
+	private function stringifyField(string|Field $field): string
+	{
+		return is_string($field) ? $field : $field->getFullPath();
+	}
+
+	/**
+	 * @param class-string $targetClass
+	 */
+	private function getTypeFromReflection(string $targetClass, ReflectionParameter $parameter): ReflectionType
+	{
+		$parameterName = $parameter->getName();
+		$type = $parameter->getType();
+		if ($type === null) {
+			throw new LogicException(sprintf(
+				'Parameter %s of class %s has no type defined, add the type or use parameter configuration.',
+				$parameterName,
+				$targetClass,
+			));
+		}
+		if (!$type instanceof ReflectionNamedType) {
+			throw new LogicException(sprintf(
+				'Parameter %s of class %s has a union or intersection type, these are not supported, use parameter configuration to specify behavior.',
+				$parameterName,
+				$targetClass,
+			));
+		}
+
+		return $type;
+	}
+
+	private function getMapperByReflectionType(ReflectionType $type): ?PropertyMapper
+	{
+		$typeName = FilterVar::getValidTypeFromReflection($type);
+		if ($typeName !== null) {
+			return new FilterVarPropertyMapper(FilterVar::createFromType($typeName, $type->allowsNull()));
+		}
+
+		$typeName = $this->stringifyReflectionType($type);
+		foreach ($this->valueMappers as $valueMapper) {
+			if (!is_a($typeName, $valueMapper->getSupportedType(), true)) {
+				continue;
+			}
+
+			return new ExternalPropertyMapper($valueMapper);
 		}
 
 		return null;
+	}
+
+	/**
+	 * @template T of object
+	 * @param class-string<T> $target
+	 * @return T
+	 */
+	private function createOutput(string $target, RequestValues $values): object
+	{
+		$reflectionClass = new ReflectionClass($target);
+		$constructor = $reflectionClass->getConstructor();
+		if ($constructor === null) {
+			throw new LogicException(sprintf(
+				'Class %s has no constructor, but it is required for mapping.',
+				$target,
+			));
+		}
+
+		$arguments = [];
+		foreach ($constructor->getParameters() as $parameter) {
+			$arguments[$parameter->getName()] = $values->get($parameter->getName());
+		}
+
+		return new $target(...$arguments);
+	}
+
+	private function needToUseObjectMapper(RequestContext $context): bool
+	{
+		if (!$context->isTypeStrictByRequestLocation($context->getDefaultRequestLocation())) {
+			return false;
+		}
+
+		foreach ($context->getParamConfigs() as $paramConfig) {
+			if ($paramConfig instanceof RequestLocation) {
+				if (!$context->isTypeStrictByRequestLocation($paramConfig)) {
+					return false;
+				}
+
+				continue;
+			}
+
+			if ($paramConfig->location !== null && !$context->isTypeStrictByRequestLocation($paramConfig->location)) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	private function stringifyReflectionType(ReflectionType $reflectionType): string
+	{
+		if ($reflectionType instanceof ReflectionNamedType) {
+			return $reflectionType->getName() . ($reflectionType->allowsNull() ? '|null' : '');
+		}
+
+		return (string) $reflectionType;
 	}
 
 }

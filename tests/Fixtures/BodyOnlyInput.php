@@ -2,18 +2,19 @@
 
 namespace Tests\Fixtures;
 
-use Shredio\RequestMapper\Attribute\InBody;
-use Shredio\RequestMapper\Attribute\InPath;
+use ShipMonk\InputMapper\Compiler\Mapper\Optional;
 
 final readonly class BodyOnlyInput
 {
 
 	public function __construct(
-		#[InPath] public int $id,
-		#[InBody] public string $title,
-		#[InBody] public string $content,
-		#[InBody] public string $category = 'general',
-		#[InBody] public bool $published = true,
+		public int $id,
+		public string $title,
+		public string $content,
+		#[Optional(default: 'general')]
+		public string $category = 'general',
+		#[Optional(default: true)]
+		public bool $published = true,
 	)
 	{
 	}
