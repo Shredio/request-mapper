@@ -7,6 +7,7 @@ use ReflectionNamedType;
 use ReflectionParameter;
 use ReflectionType;
 use Shredio\Problem\Exception\ViolationAwareException;
+use Shredio\Problem\Violation\FieldViolation;
 use Shredio\RequestMapper\Attribute\RequestParam;
 use Shredio\RequestMapper\Error\RequestMapperErrorCollector;
 use Shredio\RequestMapper\Error\RequestMapperErrorFactory;
@@ -24,6 +25,7 @@ use Shredio\RequestMapper\Request\RequestContext;
 use Shredio\RequestMapper\Request\RequestLocation;
 use Shredio\RequestMapper\Request\RequestValues;
 use Symfony\Component\DependencyInjection\Attribute\AutowireIterator;
+use Symfony\Component\Validator\Validator\ValidatorInterface;
 use Throwable;
 
 final readonly class RequestMapper
@@ -35,6 +37,7 @@ final readonly class RequestMapper
 	public function __construct(
 		private RequestObjectMapper $requestObjectMapper,
 		private ?RequestMediatorMapper $requestMediatorMapper = null,
+		private ?ValidatorInterface $validator = null,
 		#[AutowireIterator(tag: 'request_value_mapper')]
 		private iterable $valueMappers = [],
 	)
@@ -73,6 +76,8 @@ final readonly class RequestMapper
 		} else {
 			$output = $this->createOutput($target, $values);
 		}
+
+		$this->validateObject($target, $output);
 
 		if ($mediator === null) {
 			/** @var T */
@@ -395,6 +400,33 @@ final readonly class RequestMapper
 		}
 
 		return (string) $reflectionType;
+	}
+
+	/**
+	 * @throws InvalidRequestException
+	 */
+	private function validateObject(string $target, object $output): void
+	{
+		if ($this->validator === null) {
+			return;
+		}
+
+		$list = $this->validator->validate($output);
+		if ($list->count() === 0) {
+			return;
+		}
+
+		$groupedMessages = [];
+		foreach ($list as $violation) {
+			$groupedMessages[$violation->getPropertyPath()][] = $violation->getMessage();
+		}
+
+		$violations = [];
+		foreach ($groupedMessages as $fieldName => $messages) {
+			$violations[] = new FieldViolation($fieldName, $messages);
+		}
+
+		throw new InvalidRequestException($target, $violations);
 	}
 
 }
