@@ -28,7 +28,7 @@ final class RequestMapperBundle extends AbstractBundle
 		$services->set('shredio.controller_argument_resolver', RequestMapperArgumentResolver::class)
 			->args([service(RequestMapper::class)])
 			->tag('kernel.event_subscriber')
-			->tag('controller.argument_value_resolver');
+			->tag('controller.argument_value_resolver', ['priority' => 110, 'name' => RequestMapperArgumentResolver::class]);
 		$builder->registerForAutoconfiguration(RequestValueMapper::class)
 			->addTag('request_value_mapper');
 	}

@@ -15,6 +15,8 @@ use Shredio\RequestMapper\Exception\InvalidPropertyException;
 use Shredio\RequestMapper\Exception\LogicException;
 use Shredio\RequestMapper\Exception\FieldNotExistsException;
 use Shredio\RequestMapper\Field\Field;
+use Shredio\RequestMapper\Field\FieldMirror;
+use Shredio\RequestMapper\Field\FieldType;
 use Shredio\RequestMapper\Filter\FilterVar;
 use Shredio\RequestMapper\Mapper\ExternalPropertyMapper;
 use Shredio\RequestMapper\Mapper\FilterVarPropertyMapper;
@@ -42,6 +44,25 @@ final readonly class RequestMapper
 		private iterable $valueMappers = [],
 	)
 	{
+	}
+
+	/**
+	 * @param class-string $className
+	 *
+	 * @throws InvalidRequestException
+	 */
+	public function mapParam(string $name, string $className, FieldMirror $fieldMirror, RequestParam $paramConfig, RequestContext $context): mixed
+	{
+		$values = new RequestValues([], false);
+		$getViolations = RequestMapperErrorCollector::capture();
+
+		$this->paramConfig($className, $name, $paramConfig, $context, $values, new RequestObjectMapperContext(), $fieldMirror);
+		$violations = $getViolations();
+		if ($violations) {
+			throw new InvalidRequestException($className, $violations);
+		}
+
+		return $values->get($name);
 	}
 
 	/**
@@ -160,26 +181,26 @@ final readonly class RequestMapper
 		}
 
 		foreach ($constructor->getParameters() as $parameter) {
+			$fieldMirror = FieldMirror::createFromReflectionParameter($targetClass, $parameter);
 			$parameterName = $parameter->getName();
 			if (isset($paramConfigs[$parameterName])) {
-				$this->paramConfig($targetClass, $parameterName, $paramConfigs[$parameterName], $context, $values, $objectMapperContext, $parameter);
+				$this->paramConfig($targetClass, $parameterName, $paramConfigs[$parameterName], $context, $values, $objectMapperContext, $fieldMirror);
 				continue;
 			}
 
-			$reflectionType = $this->getTypeFromReflection($targetClass, $parameter);
 			if (!$values->has($parameterName)) {
-				$this->defaultValue($values, $parameter, $parameterName);
+				$this->defaultValue($values, $fieldMirror, $parameterName);
 				continue;
 			}
 
-			$typeName = $this->stringifyReflectionType($reflectionType);
-			$mapper = $this->getMapperByReflectionType($reflectionType);
+			$typeName = $fieldMirror->type->getSingleType();
+			$mapper = $this->getMapperByFieldType($fieldMirror->type);
 			if ($mapper === null) {
 				throw new LogicException(sprintf(
 					'Parameter %s of class %s has unsupported type %s, use parameter configuration to specify behavior or add a custom value mapper.',
 					$parameterName,
 					$targetClass,
-					$this->stringifyReflectionType($reflectionType),
+					$fieldMirror->type,
 				));
 			}
 
@@ -209,7 +230,7 @@ final readonly class RequestMapper
 		RequestContext $context,
 		RequestValues $values,
 		RequestObjectMapperContext $objectMapperContext,
-		?ReflectionParameter $parameter = null,
+		?FieldMirror $fieldMirror = null,
 	): bool
 	{
 		$paramConfig = $config instanceof RequestLocation ? new RequestParam(location: $config) : $config;
@@ -229,31 +250,31 @@ final readonly class RequestMapper
 		try {
 			$sourceValue = $sourceField->getValueFrom($context->getRequestValuesByLocation($paramLocation));
 		} catch (FieldNotExistsException) {
-			if ($parameter === null) {
+			if ($fieldMirror === null) {
 				return false;
 			}
 
-			return $this->defaultValue($values, $parameter, $targetField, $fieldName);
+			return $this->defaultValue($values, $fieldMirror, $targetField, $fieldName);
 		}
 
+		// mapper & type & source value
 		$sourceValue = $context->filterValue($sourceValue, $paramLocation);
 		$filter = $paramConfig->getFilter();
 		if ($filter !== null) {
 			$mapper = new FilterVarPropertyMapper($filter);
 			$typeName = $filter->getType();
-		} else if ($parameter !== null) {
-			$type = $this->getTypeFromReflection($targetClass, $parameter);
-			$mapper = $this->getMapperByReflectionType($type);
+		} else if ($fieldMirror !== null) {
+			$mapper = $this->getMapperByFieldType($fieldMirror->type);
 			if ($mapper === null) {
 				throw new LogicException(sprintf(
 					'Parameter %s of class %s has unsupported type %s, use parameter configuration to specify behavior or add a custom value mapper.',
-					$parameter->getName(),
+					$fieldMirror->name,
 					$targetClass,
-					$this->stringifyReflectionType($type),
+					$fieldMirror->type,
 				));
 			}
 
-			$typeName = $this->stringifyReflectionType($type);
+			$typeName = $fieldMirror->type->getSingleType();
 		} else {
 			throw new LogicException(sprintf(
 				'Parameter %s of class %s has unsupported type, use parameter configuration to specify behavior.',
@@ -274,6 +295,8 @@ final readonly class RequestMapper
 
 		try {
 			$values->set($targetField, $mapper->convert($sourceValue, $typeName));
+
+			return true;
 		} catch (InvalidPropertyException|ViolationAwareException $exception) {
 			foreach ($exception->getViolations($sourceField->getFullPath()) as $violation) {
 				RequestMapperErrorCollector::addViolation($violation);
@@ -281,14 +304,12 @@ final readonly class RequestMapper
 
 			return false;
 		}
-
-		return true;
 	}
 
-	private function defaultValue(RequestValues $values, ReflectionParameter $parameter, string|Field $target, ?string $source = null): bool
+	private function defaultValue(RequestValues $values, FieldMirror $fieldMirror, string|Field $target, ?string $source = null): bool
 	{
-		if ($parameter->isDefaultValueAvailable()) {
-			$values->set($target, $parameter->getDefaultValue());
+		if ($fieldMirror->hasDefaultValue) {
+			$values->set($target, $fieldMirror->defaultValue);
 
 			return true;
 		}
@@ -302,39 +323,14 @@ final readonly class RequestMapper
 		return is_string($field) ? $field : $field->getFullPath();
 	}
 
-	/**
-	 * @param class-string $targetClass
-	 */
-	private function getTypeFromReflection(string $targetClass, ReflectionParameter $parameter): ReflectionType
+	private function getMapperByFieldType(FieldType $type): ?PropertyMapper
 	{
-		$parameterName = $parameter->getName();
-		$type = $parameter->getType();
-		if ($type === null) {
-			throw new LogicException(sprintf(
-				'Parameter %s of class %s has no type defined, add the type or use parameter configuration.',
-				$parameterName,
-				$targetClass,
-			));
-		}
-		if (!$type instanceof ReflectionNamedType) {
-			throw new LogicException(sprintf(
-				'Parameter %s of class %s has a union or intersection type, these are not supported, use parameter configuration to specify behavior.',
-				$parameterName,
-				$targetClass,
-			));
-		}
-
-		return $type;
-	}
-
-	private function getMapperByReflectionType(ReflectionType $type): ?PropertyMapper
-	{
-		$typeName = FilterVar::getValidTypeFromReflection($type);
+		$typeName = FilterVar::getValidTypeFromStringType($type->getSingleType());
 		if ($typeName !== null) {
 			return new FilterVarPropertyMapper(FilterVar::createFromType($typeName, $type->allowsNull()));
 		}
 
-		$typeName = $this->stringifyReflectionType($type);
+		$typeName = $type->getSingleType();
 		foreach ($this->valueMappers as $valueMapper) {
 			if (!is_a($typeName, $valueMapper->getSupportedType(), true)) {
 				continue;
@@ -391,15 +387,6 @@ final readonly class RequestMapper
 		}
 
 		return true;
-	}
-
-	private function stringifyReflectionType(ReflectionType $reflectionType): string
-	{
-		if ($reflectionType instanceof ReflectionNamedType) {
-			return $reflectionType->getName() . ($reflectionType->allowsNull() ? '|null' : '');
-		}
-
-		return (string) $reflectionType;
 	}
 
 	/**

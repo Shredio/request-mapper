@@ -74,6 +74,14 @@ final readonly class FilterVar
 		return null;
 	}
 
+	public static function getValidTypeFromStringType(string $type): ?string
+	{
+		return match ($type) {
+			'int', 'float', 'bool', 'string' => $type,
+			default => is_subclass_of($type, BackedEnum::class) ? $type : null,
+		};
+	}
+
 	/**
 	 * @throws InvalidArgumentException
 	 */

@@ -2,16 +2,13 @@
 
 namespace Shredio\RequestMapper\Symfony;
 
-use InvalidArgumentException;
 use LogicException;
 use Shredio\Problem\Violation\GlobalViolation;
 use Shredio\RequestMapper\Attribute\MapFromRequest;
 use Shredio\RequestMapper\Attribute\RequestParam;
 use Shredio\RequestMapper\Attribute\StringBodyFromRequest;
-use Shredio\RequestMapper\Error\RequestMapperErrorFactory;
-use Shredio\RequestMapper\Exception\FieldNotExistsException;
-use Shredio\RequestMapper\Field\Field;
-use Shredio\RequestMapper\Filter\FilterVar;
+use Shredio\RequestMapper\Field\FieldMirror;
+use Shredio\RequestMapper\Field\StaticFieldType;
 use Shredio\RequestMapper\Request\Exception\InvalidRequestException;
 use Shredio\RequestMapper\Request\SymfonyRequestContext;
 use Shredio\RequestMapper\RequestMapper;
@@ -121,50 +118,21 @@ final readonly class RequestMapperArgumentResolver implements EventSubscriberInt
 	): mixed
 	{
 		$location = $attribute->location ?? SymfonyRequestContext::determineDefaultRequestLocation($request);
-		$field = Field::create($attribute->sourceKey ?? $argument->getName());
+		/** @var class-string $controllerName */
+		$controllerName = $argument->getControllerName();
 
-		try {
-			$value = $field->getValueFrom(SymfonyRequestContext::getValuesFromRequest($request, $location));
-		} catch (FieldNotExistsException) {
-			if ($argument->isNullable()) {
-				return null;
-			}
-
-			if ($argument->hasDefaultValue()) {
-				return $argument->getDefaultValue();
-			}
-
-			throw new InvalidRequestException(
-				'requestParam',
-				[RequestMapperErrorFactory::missingField($field->getFullPath())],
-			);
-		}
-
-		$filter = $attribute->getFilter();
-		if ($filter === null) {
-			$parameterType = $argument->getType() ?? 'mixed';
-			try {
-				$filter = FilterVar::createFromType($parameterType, $argument->isNullable());
-			} catch (InvalidArgumentException) {
-				throw new LogicException(
-					sprintf(
-						'Could not resolve the "$%s" controller argument: unsupported type "%s".',
-						$argument->getName(),
-						$parameterType,
-					),
-				);
-			}
-		}
-
-		$result = $filter->call($value);
-		if (!$result->isValid) {
-			throw new InvalidRequestException(
-				'requestParam',
-				[RequestMapperErrorFactory::invalidTypeMessage($field->getFullPath(), $filter->getNullableType())],
-			);
-		}
-
-		return $result->value;
+		return $this->requestMapper->mapParam(
+			$argument->getName(),
+			$controllerName,
+			new FieldMirror(
+				$argument->getName(),
+				$argument->hasDefaultValue(),
+				$argument->hasDefaultValue() ? $argument->getDefaultValue() : null,
+				new StaticFieldType($argument->getType(), $argument->isNullable()),
+			),
+			$attribute,
+			new SymfonyRequestContext($request, location: $location),
+		);
 	}
 
 	/**
