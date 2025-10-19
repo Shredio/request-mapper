@@ -2,26 +2,15 @@
 
 namespace Tests\Unit;
 
-use ShipMonk\InputMapper\Runtime\MapperProvider;
 use Shredio\RequestMapper\Attribute\RequestParam;
-use Shredio\RequestMapper\Mapper\Shipmonk\ShipmonkRequestObjectMapper;
 use Shredio\RequestMapper\Request\RequestLocation;
 use Shredio\RequestMapper\Request\SymfonyRequestContext;
-use Shredio\RequestMapper\RequestMapper;
-use Shredio\RequestMapper\Filter\FilterVar;
 use Symfony\Component\HttpFoundation\Request;
 use Tests\Fixtures\ComplexInput;
-use Tests\TestCase;
+use Tests\MapperTestCase;
 
-final class ComplexMappingTest extends TestCase
+final class ComplexMappingTest extends MapperTestCase
 {
-
-	private RequestMapper $mapper;
-
-	protected function setUp(): void
-	{
-		$this->mapper = new RequestMapper(new ShipmonkRequestObjectMapper(new MapperProvider(__DIR__ . '/../var/shipmonk', true)));
-	}
 
 	public function testMapFromAllLocations(): void
 	{
@@ -38,13 +27,13 @@ final class ComplexMappingTest extends TestCase
 		$request->attributes->set('customPathName', 'custom_path');
 
 		$context = new SymfonyRequestContext($request, [
-			'pathId' => new RequestParam(location: RequestLocation::Route, filter: FilterVar::Int),
+			'pathId' => new RequestParam(location: RequestLocation::Route),
 			'queryParam' => new RequestParam(location: RequestLocation::Query),
 			'headerValue' => new RequestParam(location: RequestLocation::Header),
 			'attributeValue' => new RequestParam(location: RequestLocation::Attribute),
 			'serverHost' => new RequestParam('HTTP_HOST', RequestLocation::Server),
 			'customPath' => new RequestParam('customPathName', RequestLocation::Route),
-			'customQuery' => new RequestParam('customQueryName', RequestLocation::Query, filter: FilterVar::Int),
+			'customQuery' => new RequestParam('customQueryName', RequestLocation::Query),
 		]);
 
 		$result = $this->mapper->map(ComplexInput::class, $context);

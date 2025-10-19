@@ -5,6 +5,6 @@ namespace Tests;
 abstract class TestCase extends \PHPUnit\Framework\TestCase
 {
 
-	protected const string TempDir = __DIR__ . '/temp';
+	protected const string GeneratedDir = __DIR__ . '/Generated';
 
 }

@@ -2,83 +2,22 @@
 
 namespace Tests\Unit;
 
-use ShipMonk\InputMapper\Runtime\CallbackMapper;
-use ShipMonk\InputMapper\Runtime\Exception\MappingFailedException;
-use ShipMonk\InputMapper\Runtime\MapperProvider;
 use Shredio\RequestMapper\Attribute\RequestParam;
-use Shredio\RequestMapper\Mapper\InlineObjectRequestValueMapper;
-use Shredio\RequestMapper\Mapper\Shipmonk\ShipmonkRequestObjectMapper;
 use Shredio\RequestMapper\Request\Exception\InvalidRequestException;
 use Shredio\RequestMapper\Request\RequestLocation;
 use Shredio\RequestMapper\Request\SymfonyRequestContext;
-use Shredio\RequestMapper\RequestMapper;
-use Shredio\RequestMapper\Filter\FilterVar;
 use Symfony\Component\HttpFoundation\Request;
 use Tests\Fixtures\ArticleInput;
 use Tests\Fixtures\EnumInput;
-use Tests\Fixtures\IntValueObject;
-use Tests\Fixtures\ScalarValueObject;
 use Tests\Fixtures\SimpleArticleInput;
 use Tests\Fixtures\SimpleBodyInput;
 use Tests\Fixtures\SimpleInput;
-use Tests\Fixtures\StringValueObject;
 use Tests\Fixtures\UserInput;
 use Tests\Fixtures\ValueMapperInput;
-use Tests\TestCase;
-use TypeError;
+use Tests\MapperTestCase;
 
-final class RequestMapperTest extends TestCase
+final class RequestMapperTest extends MapperTestCase
 {
-
-	private RequestMapper $mapper;
-
-	protected function setUp(): void
-	{
-		$mapperProvider = new MapperProvider(__DIR__ . '/../var/shipmonk', true);
-		$mapperProvider->registerFactory(
-			ScalarValueObject::class,
-			static fn (string $className) => new CallbackMapper(function (mixed $value, array $path) use ($className): ScalarValueObject {
-				try {
-					return new $className($value);
-				} catch (TypeError) {
-					throw MappingFailedException::incorrectType($value, $path, $className::getType());
-				}
-			}),
-		);
-		$this->mapper = new RequestMapper(new ShipmonkRequestObjectMapper($mapperProvider), valueMappers: [
-			new InlineObjectRequestValueMapper(StringValueObject::class, 'string'),
-			new InlineObjectRequestValueMapper(IntValueObject::class, 'int'),
-		]);
-	}
-
-	private function createRequest(
-		string $method = 'GET',
-		array $query = [],
-		array $path = [],
-		?array $body = null,
-		array $headers = [],
-	): Request
-	{
-		if ($body !== null) {
-			$headers = array_merge($headers, ['Content-Type' => 'application/json']);
-		}
-
-		$request = new Request($query, attributes: $path, content: $body !== null ? json_encode($body) : null);
-		$request->setMethod($method);
-		foreach ($headers as $headerName => $headerValue) {
-			$request->headers->set($headerName, $headerValue);
-		}
-
-		return $request;
-	}
-
-	private function createContextForSimpleArticleInput(Request $request): SymfonyRequestContext
-	{
-		return new SymfonyRequestContext($request, [
-			'id' => new RequestParam(location: RequestLocation::Route, filter: FilterVar::Int),
-			'published' => new RequestParam(location: RequestLocation::Query, filter: FilterVar::Bool),
-		]);
-	}
 
 	public function testMapFromPathParameters(): void
 	{
@@ -134,7 +73,7 @@ final class RequestMapperTest extends TestCase
 		$context = new SymfonyRequestContext($request);
 
 		$this->expectInvalidRequest([
-			'stringObject' => 'Expected string, got 42.',
+			'stringObject' => 'This value should be of type string.',
 		]);
 
 		$this->mapper->map(ValueMapperInput::class, $context);
@@ -142,7 +81,7 @@ final class RequestMapperTest extends TestCase
 
 	public function testValueObjectsValidInQuery(): void
 	{
-		$request = $this->createRequest(query: ['stringObject' => 'foo', 'intObject' => 42]);
+		$request = $this->createRequest(query: ['stringObject' => 'foo', 'intObject' => '42']);
 		$context = new SymfonyRequestContext($request);
 
 		$result = $this->mapper->map(ValueMapperInput::class, $context);
@@ -151,20 +90,22 @@ final class RequestMapperTest extends TestCase
 		self::assertSame(42, $result->intObject->value);
 	}
 
-	public function testValueObjectsValidDiffTypesInQuery(): void
+	public function testValueObjectsInvalidQueryType(): void
 	{
 		$request = $this->createRequest(query: ['stringObject' => 42, 'intObject' => '12']);
 		$context = new SymfonyRequestContext($request);
 
-		$result = $this->mapper->map(ValueMapperInput::class, $context);
+		// Query should be always only strings
+		$this->expectInvalidRequest([
+			'stringObject' => 'This value should be of type string.',
+		]);
 
-		self::assertSame('42', $result->stringObject->value);
-		self::assertSame(12, $result->intObject->value);
+		$this->mapper->map(ValueMapperInput::class, $context);
 	}
 
 	public function testValueObjectsInvalidTypesInQuery(): void
 	{
-		$request = $this->createRequest(query: ['stringObject' => 42, 'intObject' => '12.4']);
+		$request = $this->createRequest(query: ['stringObject' => '42', 'intObject' => '12.4']);
 		$context = new SymfonyRequestContext($request);
 
 		$this->expectInvalidRequest([
@@ -176,7 +117,7 @@ final class RequestMapperTest extends TestCase
 
 	public function testValueObjectInParamConfigInQuery(): void
 	{
-		$request = $this->createRequest(query: ['stringObject' => 42, 'intObject' => '12']);
+		$request = $this->createRequest(query: ['stringObject' => '42', 'intObject' => '12']);
 		$context = new SymfonyRequestContext($request, [
 			'stringObject' => new RequestParam(location: RequestLocation::Query),
 			'intObject' => new RequestParam(location: RequestLocation::Query),
@@ -194,7 +135,7 @@ final class RequestMapperTest extends TestCase
 		$context = new SymfonyRequestContext($request);
 
 		$this->expectInvalidRequest([
-			'status' => 'This value must be one of "draft", "published", "archived".',
+			'status' => 'The value you selected is not a valid choice.',
 		]);
 		$this->mapper->map(EnumInput::class, $context);
 	}
@@ -218,7 +159,7 @@ final class RequestMapperTest extends TestCase
 	{
 		$request = $this->createRequest(query: ['filter' => 'active'], path: ['userId' => '100'], headers: ['X-API-Key' => 'secret123']);
 		$context = new SymfonyRequestContext($request, [
-			'id' => new RequestParam(sourceKey: 'userId', location: RequestLocation::Route, filter: FilterVar::Int),
+			'id' => new RequestParam(sourceKey: 'userId', location: RequestLocation::Route),
 			'apiKey' => new RequestParam(sourceKey: 'X-API-Key', location: RequestLocation::Header),
 		]);
 
@@ -239,7 +180,7 @@ final class RequestMapperTest extends TestCase
 		$context = new SymfonyRequestContext($request);
 
 		$this->expectInvalidRequest([
-			'extraOne' => 'This field is not allowed.',
+			'extraOne' => 'This field was not expected.',
 		]);
 		$this->mapper->map(UserInput::class, $context);
 	}
@@ -254,8 +195,8 @@ final class RequestMapperTest extends TestCase
 		$context = new SymfonyRequestContext($request);
 
 		$this->expectInvalidRequest([
-			'extraOne' => 'This field is not allowed.',
-			'extraTwo' => 'This field is not allowed.',
+			'extraOne' => 'This field was not expected.',
+			'extraTwo' => 'This field was not expected.',
 		]);
 		$this->mapper->map(UserInput::class, $context);
 	}
@@ -271,9 +212,9 @@ final class RequestMapperTest extends TestCase
 		$context = new SymfonyRequestContext($request);
 
 		$this->expectInvalidRequest([
-			'extraOne' => 'This field is not allowed.',
-			'extraTwo' => 'This field is not allowed.',
-			'extraThree' => 'This field is not allowed.',
+			'extraOne' => 'This field was not expected.',
+			'extraTwo' => 'This field was not expected.',
+			'extraThree' => 'This field was not expected.',
 		]);
 		$this->mapper->map(UserInput::class, $context);
 	}
@@ -282,7 +223,7 @@ final class RequestMapperTest extends TestCase
 	{
 		$request = $this->createRequest();
 		$context = new SymfonyRequestContext($request, [
-			'id' => new RequestParam(sourceKey: 'userId', location: RequestLocation::Route, filter: FilterVar::Int),
+			'id' => new RequestParam(sourceKey: 'userId', location: RequestLocation::Route),
 		]);
 
 		$this->expectInvalidRequest([
@@ -295,7 +236,7 @@ final class RequestMapperTest extends TestCase
 	{
 		$request = $this->createRequest(query: ['name' => 'John', 'age' => '30']);
 		$context = new SymfonyRequestContext($request, [
-			'age' => new RequestParam(filter: FilterVar::Int),
+			'age' => new RequestParam(),
 		]);
 
 		$result = $this->mapper->map(SimpleInput::class, $context);
@@ -337,11 +278,40 @@ final class RequestMapperTest extends TestCase
 
 		$expression = '/.*?';
 		foreach ($messages as $field => $message) {
-			$expression .= sprintf("Field \"%s\": %s\n\n", preg_quote($field, '/'), preg_quote($message, '/'));
+			$expression .= sprintf("Field \"%s\": %s\n", preg_quote($field, '/'), preg_quote($message, '/'));
 		}
 		$expression = trim($expression) . '/';
 
 		self::expectExceptionMessageMatches($expression);
+	}
+
+	private function createRequest(
+		string $method = 'GET',
+		array $query = [],
+		array $path = [],
+		?array $body = null,
+		array $headers = [],
+	): Request
+	{
+		if ($body !== null) {
+			$headers = array_merge($headers, ['Content-Type' => 'application/json']);
+		}
+
+		$request = new Request($query, attributes: $path, content: $body !== null ? json_encode($body) : null);
+		$request->setMethod($method);
+		foreach ($headers as $headerName => $headerValue) {
+			$request->headers->set($headerName, $headerValue);
+		}
+
+		return $request;
+	}
+
+	private function createContextForSimpleArticleInput(Request $request): SymfonyRequestContext
+	{
+		return new SymfonyRequestContext($request, [
+			'id' => new RequestParam(location: RequestLocation::Route),
+			'published' => new RequestParam(location: RequestLocation::Query),
+		]);
 	}
 
 }

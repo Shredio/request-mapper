@@ -20,7 +20,7 @@ final class InvalidRequestException extends RuntimeException
 	)
 	{
 		parent::__construct(sprintf(
-			"Mapping from request to \"%s\" failed. Reasons:\n%s",
+			"Mapping from request to %s failed. Reasons:\n%s",
 			$this->stringifyTarget($target),
 			implode("\n", array_map(
 				static fn(Violation $violation): string => $violation->debugString(),

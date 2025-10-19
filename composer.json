@@ -4,8 +4,8 @@
 	"license": "MIT",
 	"require": {
 		"php": ">=8.3",
-		"shipmonk/input-mapper": "^0.9.1",
-		"shredio/problem": ">=1.4.6"
+		"shredio/problem": ">=1.4.9",
+		"shredio/type-schema": "^0.9.10"
 	},
 	"autoload": {
 		"psr-4": {
@@ -25,14 +25,9 @@
 		"phpstan/phpstan": "^2.1",
 		"phpunit/phpunit": "^12.1",
 		"symfony/http-foundation": "^7.2",
-		"symfony/object-mapper": "v7.3.0-BETA2",
-		"jolicode/automapper": "^9.3",
 		"symfony/framework-bundle": "^7.2",
 		"symfony/translation": "^7.3",
-		"symfony/serializer": "^7.3",
-		"symfony/property-info": "^7.3",
-		"phpdocumentor/reflection-docblock": "^5.3",
-		"symfony/property-access": "^7.3",
-		"symfony/validator": "^7.3"
+		"symfony/validator": "^7.3",
+		"shredio/type-schema-compiler": "^0.9.0"
 	}
 }

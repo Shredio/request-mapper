@@ -12,11 +12,6 @@ interface RequestContext
 	 */
 	public function getParamConfigs(): array;
 
-	/**
-	 * @return class-string|null
-	 */
-	public function getMediatorClass(): ?string;
-
 	public function getDefaultRequestLocation(): RequestLocation;
 
 	public function isTypeStrictByRequestLocation(RequestLocation $location): bool;

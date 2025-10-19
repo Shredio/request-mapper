@@ -10,8 +10,11 @@ use Shredio\RequestMapper\Attribute\StringBodyFromRequest;
 use Shredio\RequestMapper\Field\FieldMirror;
 use Shredio\RequestMapper\Field\StaticFieldType;
 use Shredio\RequestMapper\Request\Exception\InvalidRequestException;
+use Shredio\RequestMapper\Request\SingleRequestParameter;
 use Shredio\RequestMapper\Request\SymfonyRequestContext;
 use Shredio\RequestMapper\RequestMapper;
+use Shredio\TypeSchema\Exception\UnsupportedTypeException;
+use Shredio\TypeSchema\Helper\TypeSchemaHelper;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Controller\ValueResolverInterface;
@@ -97,7 +100,6 @@ final readonly class RequestMapperArgumentResolver implements EventSubscriberInt
 			$request,
 			$attribute->configuration,
 			$attribute->location,
-			$attribute->mediator,
 			$attribute->path,
 		);
 
@@ -121,15 +123,26 @@ final readonly class RequestMapperArgumentResolver implements EventSubscriberInt
 		/** @var class-string $controllerName */
 		$controllerName = $argument->getControllerName();
 
-		return $this->requestMapper->mapParam(
-			$argument->getName(),
-			$controllerName,
-			new FieldMirror(
+		$type = $argument->getType();
+		if ($type === null) {
+			throw new LogicException(\sprintf('Could not resolve the "$%s" controller argument: argument should be typed.', $argument->getName()));
+		}
+
+		try {
+			$schema = TypeSchemaHelper::fromBuiltInType($type, $argument->isNullable());
+		} catch (UnsupportedTypeException) {
+			throw new LogicException(\sprintf('Could not resolve the "$%s" controller argument: unsupported type "%s".', $argument->getName(), $argument->getType()));
+		}
+
+		return $this->requestMapper->mapSingleParam(
+			new SingleRequestParameter(
 				$argument->getName(),
+				$schema,
+				$argument->isNullable(),
 				$argument->hasDefaultValue(),
-				$argument->hasDefaultValue() ? $argument->getDefaultValue() : null,
-				new StaticFieldType($argument->getType(), $argument->isNullable()),
+				$argument->getDefaultValue(),
 			),
+			$controllerName,
 			$attribute,
 			new SymfonyRequestContext($request, location: $location),
 		);

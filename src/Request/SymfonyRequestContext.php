@@ -11,14 +11,12 @@ final readonly class SymfonyRequestContext implements RequestContext
 	private RequestLocation $location;
 
 	/**
-	 * @param class-string|null $mediatorClass
 	 * @param array<non-empty-string, RequestParam|RequestLocation> $paramConfig
 	 */
 	public function __construct(
 		private Request $request,
 		private array $paramConfig = [],
 		?RequestLocation $location = null,
-		private ?string $mediatorClass = null,
 		private ?string $path = null,
 	)
 	{
@@ -31,11 +29,6 @@ final readonly class SymfonyRequestContext implements RequestContext
 	public function getParamConfigs(): array
 	{
 		return $this->paramConfig;
-	}
-
-	public function getMediatorClass(): ?string
-	{
-		return $this->mediatorClass;
 	}
 
 	public function getDefaultRequestLocation(): RequestLocation

@@ -2,67 +2,74 @@
 
 namespace Shredio\RequestMapper;
 
-use ReflectionClass;
-use ReflectionNamedType;
-use ReflectionParameter;
-use ReflectionType;
-use Shredio\Problem\Exception\ViolationAwareException;
 use Shredio\Problem\Violation\FieldViolation;
+use Shredio\Problem\Violation\GlobalViolation;
+use Shredio\Problem\Violation\Violation;
 use Shredio\RequestMapper\Attribute\RequestParam;
-use Shredio\RequestMapper\Error\RequestMapperErrorCollector;
-use Shredio\RequestMapper\Error\RequestMapperErrorFactory;
-use Shredio\RequestMapper\Exception\InvalidPropertyException;
-use Shredio\RequestMapper\Exception\LogicException;
-use Shredio\RequestMapper\Exception\FieldNotExistsException;
-use Shredio\RequestMapper\Field\Field;
-use Shredio\RequestMapper\Field\FieldMirror;
-use Shredio\RequestMapper\Field\FieldType;
-use Shredio\RequestMapper\Filter\FilterVar;
-use Shredio\RequestMapper\Mapper\ExternalPropertyMapper;
-use Shredio\RequestMapper\Mapper\FilterVarPropertyMapper;
-use Shredio\RequestMapper\Mapper\PropertyMapper;
-use Shredio\RequestMapper\Mapper\RequestValueMapper;
+use Shredio\RequestMapper\Conversion\ConversionType;
 use Shredio\RequestMapper\Request\Exception\InvalidRequestException;
 use Shredio\RequestMapper\Request\RequestContext;
 use Shredio\RequestMapper\Request\RequestLocation;
-use Shredio\RequestMapper\Request\RequestValues;
-use Symfony\Component\DependencyInjection\Attribute\AutowireIterator;
-use Symfony\Component\Validator\Validator\ValidatorInterface;
-use Throwable;
+use Shredio\RequestMapper\Request\SingleRequestParameter;
+use Shredio\TypeSchema\Config\TypeConfig;
+use Shredio\TypeSchema\Config\TypeHierarchyConfig;
+use Shredio\TypeSchema\Conversion\ConversionStrategy;
+use Shredio\TypeSchema\Conversion\ConversionStrategyFactory;
+use Shredio\TypeSchema\Error\ErrorElement;
+use Shredio\TypeSchema\TypeSchema;
+use Shredio\TypeSchema\TypeSchemaProcessor;
 
 final readonly class RequestMapper
 {
 
-	/**
-	 * @param iterable<RequestValueMapper<object>> $valueMappers
-	 */
 	public function __construct(
-		private RequestObjectMapper $requestObjectMapper,
-		private ?RequestMediatorMapper $requestMediatorMapper = null,
-		private ?ValidatorInterface $validator = null,
-		#[AutowireIterator(tag: 'request_value_mapper')]
-		private iterable $valueMappers = [],
+		private TypeSchemaProcessor $typeSchemaProcessor,
 	)
 	{
 	}
 
 	/**
-	 * @param class-string $className
+	 * @param class-string $controllerName
 	 *
 	 * @throws InvalidRequestException
 	 */
-	public function mapParam(string $name, string $className, FieldMirror $fieldMirror, RequestParam $paramConfig, RequestContext $context): mixed
+	public function mapSingleParam(SingleRequestParameter $requestParam, string $controllerName, RequestParam $requestParamConfig, RequestContext $context): mixed
 	{
-		$values = new RequestValues([], false);
-		$getViolations = RequestMapperErrorCollector::capture();
+		$paramLocation = $requestParamConfig->location ?? $context->getDefaultRequestLocation();
+		$requestValues = $context->getRequestValuesByLocation($paramLocation);
+		$conversionType = $this->getConversionTypeByLocation($paramLocation);
+		$conversionStrategy = $this->getConversionStrategyForTypeSchema($conversionType);
 
-		$this->paramConfig($className, $name, $paramConfig, $context, $values, new RequestObjectMapperContext(), $fieldMirror);
-		$violations = $getViolations();
-		if ($violations) {
-			throw new InvalidRequestException($className, $violations);
+		[$value, $isSet] = $this->processParamConfig(
+			$requestParam->name,
+			$requestParamConfig,
+			$requestValues,
+			$paramLocation,
+			$conversionType,
+			$context,
+		);
+
+		$values = [];
+		if ($isSet) {
+			$values[$requestParam->name] = $value;
+		} else if ($requestParam->isOptional) {
+			return $requestParam->defaultValue;
 		}
 
-		return $values->get($name);
+		$value = $this->typeSchemaProcessor->parse(
+			$values,
+			TypeSchema::get()->arrayShape([
+				$requestParam->name => $requestParam->typeSchema,
+			]),
+			new TypeConfig($conversionStrategy),
+			collectErrors: true,
+		);
+
+		if ($value instanceof ErrorElement) {
+			throw new InvalidRequestException($controllerName, $this->createViolations($value));
+		}
+
+		return $value[$requestParam->name];
 	}
 
 	/**
@@ -74,346 +81,168 @@ final readonly class RequestMapper
 	 */
 	public function map(string $target, RequestContext $context): object
 	{
-		$mediator = $context->getMediatorClass();
-		$mapToObjectContext = new RequestObjectMapperContext();
-		$getViolations = RequestMapperErrorCollector::capture();
+		[$requestValues, $typeConfig, $keysToReindex] = $this->getRequestValuesAndTypeConfig($context);
 
-		try {
-			$values = new RequestValues($context->getRequestValues(), $this->needToUseObjectMapper($context));
-			$this->run($mediator ?? $target, $context, $values, $mapToObjectContext);
-		} catch (Throwable $exception) { // @phpstan-ignore catch.neverThrown (unexpected exception can be thrown in value mappers, filters, etc)
-			// cleanup errors collected during processing
-			$getViolations();
-			throw $exception;
+		$value = $this->typeSchemaProcessor->parse(
+			$requestValues,
+			TypeSchema::get()->mapper($target),
+			$typeConfig,
+			collectErrors: true,
+		);
+		if ($value instanceof ErrorElement) {
+			throw new InvalidRequestException($target, $this->createViolations($value, $keysToReindex));
 		}
 
-		$violations = $getViolations();
-		if ($violations) {
-			throw new InvalidRequestException($target, $violations);
+		return $value;
+	}
+
+	/**
+	 * @param mixed[] $requestValues
+	 * @return array{ mixed, bool, TypeConfig|null, non-empty-string|null }
+	 */
+	private function processParamConfig(
+		string $originalName,
+		RequestParam|RequestLocation $paramConfig,
+		array $requestValues,
+		RequestLocation $defaultLocation,
+		ConversionType $defaultConversionType,
+		RequestContext $context,
+	): array
+	{
+		$paramConfig = $paramConfig instanceof RequestLocation ? new RequestParam(location: $paramConfig) : $paramConfig;
+		$sourceKey = $paramConfig->sourceKey === null ? $originalName : $paramConfig->sourceKey;
+		$paramValues = $requestValues;
+		$typeConfig = null;
+		$value = null;
+		$keyToReindex = null;
+
+		if ($paramConfig->location !== null && $paramConfig->location !== $defaultLocation) {
+			$paramConversionType = $this->getConversionTypeByLocation($paramConfig->location);
+			if ($paramConversionType !== $defaultConversionType) {
+				$typeConfig = new TypeConfig(
+					conversionStrategy: $this->getConversionStrategyForTypeSchema($paramConversionType),
+				);
+			}
+
+			$paramValues = $context->getRequestValuesByLocation($paramConfig->location);
 		}
 
-		if ($values->needToUseObjectMapper) {
-			$output = $this->mapToObject($mediator ?? $target, $values->all(), $mapToObjectContext);
+		$paramLocation = $paramConfig->location ?? $defaultLocation;
+		$normalizedKey = $context->normalizeKey($sourceKey, $paramLocation);
+		if (array_key_exists($normalizedKey, $paramValues)) {
+			$value = $context->filterValue($paramValues[$normalizedKey], $paramLocation);
+			$isSet = true;
 		} else {
-			$output = $this->createOutput($target, $values);
+			$isSet = false;
 		}
 
-		$this->validateObject($target, $output);
-
-		if ($mediator === null) {
-			/** @var T */
-			return $output;
-		}
-
-		if ($this->requestMediatorMapper === null) {
-			throw new LogicException('RequestMediatorMapper is not set, but mediator class is defined in the context.');
-		}
-
-		return $this->requestMediatorMapper->map($output, $target);
-	}
-
-	/**
-	 * @template T of object
-	 * @param class-string<T> $className
-	 * @param mixed[] $values
-	 * @return T
-	 *
-	 * @throws InvalidRequestException
-	 */
-	private function mapToObject(string $className, array $values, RequestObjectMapperContext $context): object
-	{
-		return $this->requestObjectMapper->map($className, $values, $context);
-	}
-
-	/**
-	 * @param class-string $targetClass
-	 */
-	private function run(
-		string $targetClass,
-		RequestContext $context,
-		RequestValues $values,
-		RequestObjectMapperContext $objectMapperContext,
-	): void
-	{
-		$paramConfigs = $context->getParamConfigs();
-
-		if (!$values->needToUseObjectMapper) {
-			$this->typeless($targetClass, $context, $values, $paramConfigs, $objectMapperContext);
-		} else {
-			foreach ($paramConfigs as $targetKey => $paramConfig) {
-				$this->paramConfig($targetClass, $targetKey, $paramConfig, $context, $values, $objectMapperContext);
-			}
-		}
-	}
-
-	/**
-	 * @param class-string $targetClass
-	 * @param array<string, RequestParam|RequestLocation> $paramConfigs
-	 */
-	private function typeless(
-		string $targetClass,
-		RequestContext $context,
-		RequestValues $values,
-		array $paramConfigs,
-		RequestObjectMapperContext $objectMapperContext,
-	): void
-	{
-		$reflectionClass = new ReflectionClass($targetClass);
-		if ($reflectionClass->isAbstract()) {
-			throw new LogicException(sprintf(
-				'Class %s is abstract, but it is required for mapping.',
-				$targetClass,
-			));
-		}
-
-		$constructor = $reflectionClass->getConstructor();
-		if ($constructor === null) {
-			throw new LogicException(sprintf(
-				'Class %s has no constructor, but it is required for mapping.',
-				$targetClass,
-			));
-		}
-		if (!$constructor->isPublic()) {
-			throw new LogicException(sprintf(
-				'Constructor of class %s is not public, but it is required for mapping.',
-				$targetClass,
-			));
-		}
-
-		foreach ($constructor->getParameters() as $parameter) {
-			$fieldMirror = FieldMirror::createFromReflectionParameter($targetClass, $parameter);
-			$parameterName = $parameter->getName();
-			if (isset($paramConfigs[$parameterName])) {
-				$this->paramConfig($targetClass, $parameterName, $paramConfigs[$parameterName], $context, $values, $objectMapperContext, $fieldMirror);
-				continue;
-			}
-
-			if (!$values->has($parameterName)) {
-				$this->defaultValue($values, $fieldMirror, $parameterName);
-				continue;
-			}
-
-			$typeName = $fieldMirror->type->getSingleType();
-			$mapper = $this->getMapperByFieldType($fieldMirror->type);
-			if ($mapper === null) {
-				throw new LogicException(sprintf(
-					'Parameter %s of class %s has unsupported type %s, use parameter configuration to specify behavior or add a custom value mapper.',
-					$parameterName,
-					$targetClass,
-					$fieldMirror->type,
-				));
-			}
-
-			try {
-				$sourceValue = $values->get($parameterName);
-				$sourceValue = $mapper->tryToConvertToScalar($sourceValue, $typeName); // typeless
-				$value = $mapper->convert($sourceValue, $typeName);
-			} catch (InvalidPropertyException|ViolationAwareException $exception) {
-				foreach ($exception->getViolations($parameterName) as $violation) {
-					RequestMapperErrorCollector::addViolation($violation);
-				}
-
-				continue;
-			}
-
-			$values->set($parameterName, $value);
-		}
-	}
-
-	/**
-	 * @param class-string $targetClass
-	 */
-	private function paramConfig(
-		string $targetClass,
-		string $targetFieldName,
-		RequestParam|RequestLocation $config,
-		RequestContext $context,
-		RequestValues $values,
-		RequestObjectMapperContext $objectMapperContext,
-		?FieldMirror $fieldMirror = null,
-	): bool
-	{
-		$paramConfig = $config instanceof RequestLocation ? new RequestParam(location: $config) : $config;
-		$paramLocation = $paramConfig->location ?? $context->getDefaultRequestLocation();
-
-		// fields
-		$targetField = Field::create($targetFieldName);
 		if ($paramConfig->sourceKey !== null) {
-			$objectMapperContext->addParameterNameMapping($paramConfig->sourceKey, $targetFieldName);
-			$sourceField = Field::create($context->normalizeKey($paramConfig->sourceKey, $paramLocation));
-		} else {
-			$sourceField = Field::create($context->normalizeKey($targetFieldName, $paramLocation));
+			$keyToReindex = $paramConfig->sourceKey;
 		}
 
-		// get value
-		$fieldName = $sourceField->getFullPath();
-		try {
-			$sourceValue = $sourceField->getValueFrom($context->getRequestValuesByLocation($paramLocation));
-		} catch (FieldNotExistsException) {
-			if ($fieldMirror === null) {
-				return false;
-			}
-
-			return $this->defaultValue($values, $fieldMirror, $targetField, $fieldName);
-		}
-
-		// mapper & type & source value
-		$sourceValue = $context->filterValue($sourceValue, $paramLocation);
-		$filter = $paramConfig->getFilter();
-		if ($filter !== null) {
-			$mapper = new FilterVarPropertyMapper($filter);
-			$typeName = $filter->getType();
-		} else if ($fieldMirror !== null) {
-			$mapper = $this->getMapperByFieldType($fieldMirror->type);
-			if ($mapper === null) {
-				throw new LogicException(sprintf(
-					'Parameter %s of class %s has unsupported type %s, use parameter configuration to specify behavior or add a custom value mapper.',
-					$fieldMirror->name,
-					$targetClass,
-					$fieldMirror->type,
-				));
-			}
-
-			$typeName = $fieldMirror->type->getSingleType();
-		} else {
-			throw new LogicException(sprintf(
-				'Parameter %s of class %s has unsupported type, use parameter configuration to specify behavior.',
-				$sourceField->getFullPath(),
-				$targetClass,
-			));
-		}
-
-		if ($values->needToUseObjectMapper) {
-			$values->set($targetField, $mapper->tryToConvertToScalar($sourceValue, $typeName));
-			return true; // pass to object mapper
-		}
-
-		$isTypeStrict = $context->isTypeStrictByRequestLocation($paramLocation);
-		if (!$isTypeStrict) {
-			$sourceValue = $mapper->tryToConvertToScalar($sourceValue, $typeName); // typeless
-		}
-
-		try {
-			$values->set($targetField, $mapper->convert($sourceValue, $typeName));
-
-			return true;
-		} catch (InvalidPropertyException|ViolationAwareException $exception) {
-			foreach ($exception->getViolations($sourceField->getFullPath()) as $violation) {
-				RequestMapperErrorCollector::addViolation($violation);
-			}
-
-			return false;
-		}
-	}
-
-	private function defaultValue(RequestValues $values, FieldMirror $fieldMirror, string|Field $target, ?string $source = null): bool
-	{
-		if ($fieldMirror->hasDefaultValue) {
-			$values->set($target, $fieldMirror->defaultValue);
-
-			return true;
-		}
-
-		RequestMapperErrorCollector::addViolation(RequestMapperErrorFactory::missingField($this->stringifyField($source ?? $target)));
-		return false;
-	}
-
-	private function stringifyField(string|Field $field): string
-	{
-		return is_string($field) ? $field : $field->getFullPath();
-	}
-
-	private function getMapperByFieldType(FieldType $type): ?PropertyMapper
-	{
-		$typeName = FilterVar::getValidTypeFromStringType($type->getSingleType());
-		if ($typeName !== null) {
-			return new FilterVarPropertyMapper(FilterVar::createFromType($typeName, $type->allowsNull()));
-		}
-
-		$typeName = $type->getSingleType();
-		foreach ($this->valueMappers as $valueMapper) {
-			if (!is_a($typeName, $valueMapper->getSupportedType(), true)) {
-				continue;
-			}
-
-			return new ExternalPropertyMapper($valueMapper);
-		}
-
-		return null;
+		return [$value, $isSet, $typeConfig, $keyToReindex];
 	}
 
 	/**
-	 * @template T of object
-	 * @param class-string<T> $target
-	 * @return T
+	 * @return array{ mixed[], TypeConfig, array<non-empty-string, non-empty-string> }
 	 */
-	private function createOutput(string $target, RequestValues $values): object
+	private function getRequestValuesAndTypeConfig(RequestContext $context): array
 	{
-		$reflectionClass = new ReflectionClass($target);
-		$constructor = $reflectionClass->getConstructor();
-		if ($constructor === null) {
-			throw new LogicException(sprintf(
-				'Class %s has no constructor, but it is required for mapping.',
-				$target,
-			));
+		$defaultLocation = $context->getDefaultRequestLocation();
+		$defaultConversionType = $this->getConversionTypeByLocation($defaultLocation);
+		$defaultConversionStrategy = $this->getConversionStrategyForTypeSchema($defaultConversionType);
+
+		$requestValues = $context->getRequestValues();
+		$hierarchyConfigs = [];
+		$keysToReindex = [];
+		foreach ($context->getParamConfigs() as $paramKey => $paramConfig) {
+			[$value, $isSet, $typeConfig, $keyToReindex] = $this->processParamConfig(
+				$paramKey,
+				$paramConfig,
+				$requestValues,
+				$defaultLocation,
+				$defaultConversionType,
+				$context,
+			);
+
+			if ($isSet) {
+				$requestValues[$paramKey] = $value;
+			} else {
+				unset($requestValues[$paramKey]); // ensure missing keys are not present
+			}
+
+			if ($typeConfig !== null) {
+				$hierarchyConfigs[$paramKey] = $typeConfig;
+			}
+
+			if ($keyToReindex !== null) {
+				$keysToReindex[$paramKey] = $keyToReindex;
+			}
 		}
 
-		$arguments = [];
-		foreach ($constructor->getParameters() as $parameter) {
-			$arguments[$parameter->getName()] = $values->get($parameter->getName());
-		}
+		$typeConfig = new TypeConfig(
+			conversionStrategy: $defaultConversionStrategy,
+			hierarchyConfig: TypeHierarchyConfig::fromArray($hierarchyConfigs),
+		);
 
-		return new $target(...$arguments);
+		return [$requestValues, $typeConfig, $keysToReindex];
 	}
 
-	private function needToUseObjectMapper(RequestContext $context): bool
+	private function getConversionStrategyForTypeSchema(ConversionType $type): ConversionStrategy
 	{
-		if (!$context->isTypeStrictByRequestLocation($context->getDefaultRequestLocation())) {
-			return false;
-		}
+		return match ($type) {
+			ConversionType::TypeStrict => ConversionStrategyFactory::json(),
+			ConversionType::TypeLenient => ConversionStrategyFactory::httpGet(),
+		};
+	}
 
-		foreach ($context->getParamConfigs() as $paramConfig) {
-			if ($paramConfig instanceof RequestLocation) {
-				if (!$context->isTypeStrictByRequestLocation($paramConfig)) {
-					return false;
-				}
-
-				continue;
-			}
-
-			if ($paramConfig->location !== null && !$context->isTypeStrictByRequestLocation($paramConfig->location)) {
-				return false;
-			}
-		}
-
-		return true;
+	private function getConversionTypeByLocation(RequestLocation $location): ConversionType
+	{
+		return match ($location) {
+			RequestLocation::Body => ConversionType::TypeStrict,
+			default => ConversionType::TypeLenient,
+		};
 	}
 
 	/**
-	 * @throws InvalidRequestException
+	 * @param array<non-empty-string, non-empty-string> $keysToReindex
+	 * @return non-empty-list<Violation>
 	 */
-	private function validateObject(string $target, object $output): void
+	private function createViolations(ErrorElement $error, array $keysToReindex = []): array
 	{
-		if ($this->validator === null) {
-			return;
-		}
+		$grouped = [];
+		$global = [];
+		foreach ($error->getReports() as $report) {
+			$path = $report->toArrayPath();
+			$count = count($path);
+			if ($count === 0) {
+				$global[] = (string) $report->message;
+				continue;
+			}
 
-		$list = $this->validator->validate($output);
-		if ($list->count() === 0) {
-			return;
-		}
+			if ($count === 1) {
+				$path[0] = $key = $keysToReindex[$path[0]] ?? $path[0];
+			} else {
+				$key = implode('.', $path);
+			}
 
-		$groupedMessages = [];
-		foreach ($list as $violation) {
-			$groupedMessages[$violation->getPropertyPath()][] = $violation->getMessage();
+			$grouped[$key] ??= [
+				'path' => $path,
+				'messages' => [],
+			];
+
+			$grouped[$key]['messages'][] = $report->message;
 		}
 
 		$violations = [];
-		foreach ($groupedMessages as $fieldName => $messages) {
-			$violations[] = new FieldViolation($fieldName, $messages);
+		if ($global !== []) {
+			$violations[] = new GlobalViolation($global);
+		}
+		foreach ($grouped as $group) {
+			$violations[] = new FieldViolation($group['path'], $group['messages']);
 		}
 
-		throw new InvalidRequestException($target, $violations);
+		return $violations; // @phpstan-ignore return.type (the list is always non-empty here)
 	}
 
 }
