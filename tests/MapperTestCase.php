@@ -13,7 +13,9 @@ use Shredio\TypeSchema\Mapper\Jit\JustInTimeClassMapperProvider;
 use Shredio\TypeSchema\Mapper\RegistryClassMapperProvider;
 use Shredio\TypeSchema\TypeSchema;
 use Shredio\TypeSchema\TypeSchemaProcessor;
+use Shredio\TypeSchema\Validation\SymfonyErrorElementFactory;
 use Shredio\TypeSchemaCompiler\MapperCompiler;
+use Symfony\Component\Translation\IdentityTranslator;
 use Tests\Fixtures\IntValueObject;
 use Tests\Fixtures\StringValueObject;
 
@@ -35,6 +37,7 @@ abstract class MapperTestCase extends TestCase
 			new RegistryClassMapperProvider([...RegistryClassMapperProvider::createDefaultClassMappers(), ...$this->getCustomClassMappers()]),
 		);
 		$schemaProcessor = TypeSchemaProcessor::createDefault(
+			errorElementFactory: new SymfonyErrorElementFactory(new IdentityTranslator()),
 			classMapperProvider: $classMapperProvider,
 		);
 		$this->mapper = new RequestMapper($schemaProcessor);

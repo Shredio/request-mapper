@@ -129,7 +129,7 @@ final readonly class RequestMapperArgumentResolver implements EventSubscriberInt
 		}
 
 		try {
-			$schema = TypeSchemaHelper::fromBuiltInType($type, $argument->isNullable());
+			$schema = TypeSchemaHelper::fromStringType($type, $argument->isNullable());
 		} catch (UnsupportedTypeException) {
 			throw new LogicException(\sprintf('Could not resolve the "$%s" controller argument: unsupported type "%s".', $argument->getName(), $argument->getType()));
 		}
@@ -140,7 +140,7 @@ final readonly class RequestMapperArgumentResolver implements EventSubscriberInt
 				$schema,
 				$argument->isNullable(),
 				$argument->hasDefaultValue(),
-				$argument->getDefaultValue(),
+				$argument->hasDefaultValue() ? $argument->getDefaultValue() : null,
 			),
 			$controllerName,
 			$attribute,
