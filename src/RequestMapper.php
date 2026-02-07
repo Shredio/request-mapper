@@ -16,16 +16,23 @@ use Shredio\TypeSchema\Config\TypeHierarchyConfig;
 use Shredio\TypeSchema\Conversion\ConversionStrategy;
 use Shredio\TypeSchema\Conversion\ConversionStrategyFactory;
 use Shredio\TypeSchema\Error\ErrorElement;
+use Shredio\TypeSchema\Error\ErrorReportConfig;
 use Shredio\TypeSchema\TypeSchema;
 use Shredio\TypeSchema\TypeSchemaProcessor;
 
 final readonly class RequestMapper
 {
 
+	private ErrorReportConfig $errorReportConfig;
+
 	public function __construct(
 		private TypeSchemaProcessor $typeSchemaProcessor,
+		?ErrorReportConfig $errorReportConfig = null,
 	)
 	{
+		$this->errorReportConfig = $errorReportConfig ?? new ErrorReportConfig(
+			exposeExpectedType: false,
+		);
 	}
 
 	/**
@@ -212,7 +219,7 @@ final readonly class RequestMapper
 	{
 		$grouped = [];
 		$global = [];
-		foreach ($error->getReports() as $report) {
+		foreach ($error->getReports(config: $this->errorReportConfig) as $report) {
 			$path = $report->toArrayPath();
 			$count = count($path);
 			if ($count === 0) {
