@@ -4,7 +4,7 @@ namespace Tests;
 
 use Nette\Utils\FileSystem;
 use Nette\Utils\Finder;
-use Shredio\RequestMapper\RequestMapper;
+use Shredio\RequestMapper\RequestParameterMapper;
 use Shredio\TypeSchema\Context\TypeContext;
 use Shredio\TypeSchema\Error\ErrorElement;
 use Shredio\TypeSchema\Mapper\ClassMapper;
@@ -24,7 +24,7 @@ abstract class MapperTestCase extends TestCase
 
 	protected const string GeneratedDir = __DIR__ . '/Generated';
 
-	protected RequestMapper $mapper;
+	protected RequestParameterMapper $mapper;
 
 	protected function setUp(): void
 	{
@@ -40,7 +40,7 @@ abstract class MapperTestCase extends TestCase
 			errorElementFactory: new SymfonyErrorElementFactory(new IdentityTranslator()),
 			classMapperProvider: $classMapperProvider,
 		);
-		$this->mapper = new RequestMapper($schemaProcessor);
+		$this->mapper = new RequestParameterMapper($schemaProcessor);
 	}
 
 	public static function tearDownAfterClass(): void

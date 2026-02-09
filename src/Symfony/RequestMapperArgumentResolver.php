@@ -11,7 +11,7 @@ use Shredio\RequestMapper\Field\FieldMirror;
 use Shredio\RequestMapper\Field\StaticFieldType;
 use Shredio\RequestMapper\Request\Exception\InvalidRequestException;
 use Shredio\RequestMapper\Request\SingleRequestParameter;
-use Shredio\RequestMapper\RequestMapper;
+use Shredio\RequestMapper\RequestParameterMapper;
 use Shredio\TypeSchema\Exception\UnsupportedTypeException;
 use Shredio\TypeSchema\Helper\TypeSchemaHelper;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
@@ -25,7 +25,7 @@ final readonly class RequestMapperArgumentResolver implements EventSubscriberInt
 {
 
 	public function __construct(
-		private RequestMapper $requestMapper,
+		private RequestParameterMapper $requestMapper,
 	)
 	{
 	}

@@ -3,7 +3,7 @@
 namespace Shredio\RequestMapper\Symfony;
 
 use Shredio\RequestMapper\Request\RequestContextFactory;
-use Shredio\RequestMapper\RequestMapper;
+use Shredio\RequestMapper\RequestParameterMapper;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
@@ -23,11 +23,11 @@ final class RequestMapperBundle extends AbstractBundle
 			->autowire();
 		$services->alias(RequestContextFactory::class, SymfonyRequestContextFactory::class);
 
-		$services->set(RequestMapper::class)
+		$services->set(RequestParameterMapper::class)
 			->autowire();
 
 		$services->set('shredio.controller_argument_resolver', RequestMapperArgumentResolver::class)
-			->args([service(RequestMapper::class)])
+			->args([service(RequestParameterMapper::class)])
 			->tag('kernel.event_subscriber')
 			->tag('controller.argument_value_resolver', ['priority' => 110, 'name' => RequestMapperArgumentResolver::class]);
 	}

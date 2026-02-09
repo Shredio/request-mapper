@@ -4,10 +4,11 @@ namespace Shredio\RequestMapper;
 
 use Shredio\RequestMapper\Request\Exception\InvalidRequestException;
 use Shredio\RequestMapper\Request\RequestContext;
+use Shredio\RequestMapper\Request\RequestContextFactory;
+use Shredio\RequestMapper\Request\RequestLocation;
 
-interface RequestMapper
+final readonly class DefaultRequestMapper
 {
-
 
 
 }
