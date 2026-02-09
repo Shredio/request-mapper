@@ -8,6 +8,11 @@ interface RequestContext
 {
 
 	/**
+	 * @return array<non-empty-string, mixed>
+	 */
+	public function getStaticValues(): array;
+
+	/**
 	 * @return array<non-empty-string, RequestParam|RequestLocation>
 	 */
 	public function getParamConfigs(): array;

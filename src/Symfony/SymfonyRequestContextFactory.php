@@ -20,23 +20,26 @@ final readonly class SymfonyRequestContextFactory implements RequestContextFacto
 	{
 	}
 
-	/**
-	 * @param array<non-empty-string, RequestParam|RequestLocation> $paramConfig
-	 */
-	public function create(array $paramConfig = [], ?RequestLocation $location = null): RequestContext
+	public function create(array $paramConfig = [], ?RequestLocation $location = null, array $staticValues = []): RequestContext
 	{
 		$currentRequest = $this->requestStack->getCurrentRequest();
 		if ($currentRequest === null) {
 			throw new LogicException('No current request found in RequestStack.');
 		}
 
-		return self::createFrom($currentRequest, $paramConfig, $location);
+		return self::createFrom($currentRequest, $paramConfig, $location, $staticValues);
 	}
 
 	/**
 	 * @param array<non-empty-string, RequestParam|RequestLocation> $paramConfig
+	 * @param array<non-empty-string, mixed> $staticValues
 	 */
-	public static function createFrom(Request $currentRequest, array $paramConfig = [], ?RequestLocation $location = null): RequestContext
+	public static function createFrom(
+		Request $currentRequest,
+		array $paramConfig = [],
+		?RequestLocation $location = null,
+		array $staticValues = [],
+	): RequestContext
 	{
 		return new DefaultRequestContext(
 			new SymfonyRequestValueProvider($currentRequest),
@@ -44,6 +47,7 @@ final readonly class SymfonyRequestContextFactory implements RequestContextFacto
 			new SymfonyRequestKeyNormalizer(),
 			$paramConfig,
 			$location ?? self::getDefaultRequestLocation($currentRequest),
+			$staticValues,
 		);
 	}
 

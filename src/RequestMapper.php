@@ -7,6 +7,7 @@ use Shredio\Problem\Violation\GlobalViolation;
 use Shredio\Problem\Violation\Violation;
 use Shredio\RequestMapper\Attribute\RequestParam;
 use Shredio\RequestMapper\Conversion\ConversionType;
+use Shredio\RequestMapper\Exception\LogicException;
 use Shredio\RequestMapper\Request\Exception\InvalidRequestException;
 use Shredio\RequestMapper\Request\RequestContext;
 use Shredio\RequestMapper\Request\RequestLocation;
@@ -15,8 +16,11 @@ use Shredio\TypeSchema\Config\TypeConfig;
 use Shredio\TypeSchema\Config\TypeHierarchyConfig;
 use Shredio\TypeSchema\Conversion\ConversionStrategy;
 use Shredio\TypeSchema\Conversion\ConversionStrategyFactory;
+use Shredio\TypeSchema\Enum\ExtraKeysBehavior;
 use Shredio\TypeSchema\Error\ErrorElement;
+use Shredio\TypeSchema\Error\ErrorReport;
 use Shredio\TypeSchema\Error\ErrorReportConfig;
+use Shredio\TypeSchema\Error\Path;
 use Shredio\TypeSchema\TypeSchema;
 use Shredio\TypeSchema\TypeSchemaProcessor;
 
@@ -73,7 +77,9 @@ final readonly class RequestMapper
 		);
 
 		if ($value instanceof ErrorElement) {
-			throw new InvalidRequestException($controllerName, $this->createViolations($value));
+			$reports = $value->getReports(config: $this->errorReportConfig);
+
+			throw new InvalidRequestException($controllerName, $this->createViolations($reports));
 		}
 
 		return $value[$requestParam->name];
@@ -90,14 +96,22 @@ final readonly class RequestMapper
 	{
 		[$requestValues, $typeConfig, $keysToReindex] = $this->getRequestValuesAndTypeConfig($context);
 
+		[$requestValues, $extraKeysError] = $this->mergeRequestValuesWithStaticValues($requestValues, $context->getStaticValues(), $typeConfig);
+
 		$value = $this->typeSchemaProcessor->parse(
 			$requestValues,
 			TypeSchema::get()->mapper($target),
 			$typeConfig,
 			collectErrors: true,
 		);
+
 		if ($value instanceof ErrorElement) {
-			throw new InvalidRequestException($target, $this->createViolations($value, $keysToReindex));
+			$reports = $value->getReports(config: $this->errorReportConfig);
+			$this->checkForErrorsForStaticValues($reports, $context->getStaticValues(), $target);
+
+			throw new InvalidRequestException($target, $this->createViolations($reports, $keysToReindex));
+		} else if ($extraKeysError !== null) {
+			throw new InvalidRequestException($target, $this->createViolations($extraKeysError->getReports(), $keysToReindex));
 		}
 
 		return $value;
@@ -212,14 +226,15 @@ final readonly class RequestMapper
 	}
 
 	/**
+	 * @param iterable<ErrorReport> $reports
 	 * @param array<non-empty-string, non-empty-string> $keysToReindex
 	 * @return non-empty-list<Violation>
 	 */
-	private function createViolations(ErrorElement $error, array $keysToReindex = []): array
+	private function createViolations(iterable $reports, array $keysToReindex = []): array
 	{
 		$grouped = [];
 		$global = [];
-		foreach ($error->getReports(config: $this->errorReportConfig) as $report) {
+		foreach ($reports as $report) {
 			$path = $report->toArrayPath();
 			$count = count($path);
 			if ($count === 0) {
@@ -250,6 +265,100 @@ final readonly class RequestMapper
 		}
 
 		return $violations; // @phpstan-ignore return.type (the list is always non-empty here)
+	}
+
+	/**
+	 * Checks if there are any errors related to static values and throws a logic exception if there are, since static values should be correct by definition.
+	 * This is to catch any potential bugs in the implementation of the RequestMapper or the provided static values.
+	 * If there are errors related to static values, it indicates a problem that needs to be addressed by the developers, rather than an issue with the client's request.
+	 *
+	 * @param array<ErrorReport> $reports
+	 * @param array<non-empty-string, mixed> $staticValues
+	 * @param class-string $target
+	 */
+	private function checkForErrorsForStaticValues(array $reports, array $staticValues, string $target): void
+	{
+		if ($staticValues === []) {
+			return;
+		}
+
+		$currentReports = [];
+		foreach ($reports as $report) {
+			if (count($report->path) !== 1) {
+				continue;
+			}
+
+			$pathKey = $report->path[0];
+			if (array_key_exists($pathKey->path, $staticValues)) {
+				$currentReports[] = $report;
+			}
+		}
+
+		if ($currentReports !== []) {
+			$this->throwStaticValuesExceptionFromReports($currentReports, $target);
+		}
+	}
+
+	/**
+	 * @param non-empty-list<ErrorReport> $reports
+	 * @param class-string $target
+	 */
+	private function throwStaticValuesExceptionFromReports(array $reports, string $target): never
+	{
+		$messages = [];
+		foreach ($reports as $report) {
+			$messages[] = sprintf(
+				'Field "%s": %s',
+				implode('.', array_map(
+					fn (Path $path): string => (string) $path->path,
+					$report->path,
+				)),
+				$report->messageForDeveloper,
+			);
+		}
+
+		throw new LogicException(sprintf(
+			"Errors related to static values found when mapping request to %s:\n%s",
+			$target,
+			implode("\n", $messages),
+		));
+	}
+
+	/**
+	 * @param mixed[] $requestValues
+	 * @param array<non-empty-string, mixed> $staticValues
+	 * @return array{ mixed[], ErrorElement|null }
+	 */
+	private function mergeRequestValuesWithStaticValues(array $requestValues, array $staticValues, TypeConfig $typeConfig): array
+	{
+		if (
+			$staticValues === [] ||
+			$typeConfig->defaultExtraKeysBehavior === ExtraKeysBehavior::Accept ||
+			$typeConfig->defaultExtraKeysBehavior === ExtraKeysBehavior::Ignore
+		) {
+			return [$requestValues, null];
+		}
+
+		$extraKeys = [];
+
+		foreach ($staticValues as $key => $value) {
+			if (array_key_exists($key, $requestValues)) {
+				$extraKeys[$key] = null;
+			}
+
+			$requestValues[$key] = $value;
+		}
+
+		if ($extraKeys !== []) {
+			$errors = $this->typeSchemaProcessor->parse($extraKeys, TypeSchema::get()->arrayShape([])); // @phpstan-ignore argument.templateType
+			if (!$errors instanceof ErrorElement) {
+				throw new LogicException('Expected errors when merging static values with request values, but got none.');
+			}
+
+			return [$requestValues, $errors];
+		}
+
+		return [$requestValues, null];
 	}
 
 }

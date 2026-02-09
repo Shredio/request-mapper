@@ -171,7 +171,7 @@ final class MapSingleParamTest extends MapperTestCase
 			isOptional: false,
 		);
 
-		$this->expectInvalidRequest(['age' => 'This value should be of type int.']);
+		$this->expectInvalidRequest(['age' => 'This value is not valid.']);
 
 		$this->mapper->mapSingleParam($param, 'TestController', new RequestParam(location: RequestLocation::Body), $context);
 	}
@@ -310,7 +310,7 @@ final class MapSingleParamTest extends MapperTestCase
 			isOptional: false,
 		);
 
-		$this->expectInvalidRequest(['age' => 'This value should be of type int.']);
+		$this->expectInvalidRequest(['age' => 'This value is not valid.']);
 
 		$this->mapper->mapSingleParam($param, 'TestController', new RequestParam(), $context);
 	}

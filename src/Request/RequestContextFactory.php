@@ -9,7 +9,8 @@ interface RequestContextFactory
 
 	/**
 	 * @param array<non-empty-string, RequestParam|RequestLocation> $paramConfig
+	 * @param array<non-empty-string, mixed> $staticValues
 	 */
-	public function create(array $paramConfig = []): RequestContext;
+	public function create(array $paramConfig = [], ?RequestLocation $location = null, array $staticValues = []): RequestContext;
 
 }

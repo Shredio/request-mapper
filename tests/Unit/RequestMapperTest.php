@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use Shredio\RequestMapper\Attribute\RequestParam;
+use Shredio\RequestMapper\Exception\LogicException;
 use Shredio\RequestMapper\Request\Exception\InvalidRequestException;
 use Shredio\RequestMapper\Request\RequestContext;
 use Shredio\RequestMapper\Request\RequestLocation;
@@ -74,7 +75,7 @@ final class RequestMapperTest extends MapperTestCase
 		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$this->expectInvalidRequest([
-			'stringObject' => 'This value should be of type string.',
+			'stringObject' => 'This value is not valid.',
 		]);
 
 		$this->mapper->map(ValueMapperInput::class, $context);
@@ -98,7 +99,7 @@ final class RequestMapperTest extends MapperTestCase
 
 		// Query should be always only strings
 		$this->expectInvalidRequest([
-			'stringObject' => 'This value should be of type string.',
+			'stringObject' => 'This value is not valid.',
 		]);
 
 		$this->mapper->map(ValueMapperInput::class, $context);
@@ -110,7 +111,7 @@ final class RequestMapperTest extends MapperTestCase
 		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$this->expectInvalidRequest([
-			'intObject' => 'This value should be of type int.',
+			'intObject' => 'This value is not valid.',
 		]);
 
 		$this->mapper->map(ValueMapperInput::class, $context);
@@ -268,6 +269,92 @@ final class RequestMapperTest extends MapperTestCase
 			'id' => 'This field is missing.',
 		]);
 		$this->mapper->map(ArticleInput::class, $context);
+	}
+
+	public function testSingleStaticValue(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'id' => 1,
+			'title' => 'Test Article',
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, staticValues: ['content' => 'text']);
+
+		$input = $this->mapper->map(ArticleInput::class, $context);
+
+		self::assertSame('text', $input->content);
+	}
+
+	public function testOverrideValue(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'id' => 1,
+			'title' => 'Test Article',
+			'content' => 'This should be overridden',
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, staticValues: ['content' => 'text']);
+
+		$this->expectInvalidRequest([
+			'content' => 'This field was not expected.',
+		]);
+		$this->mapper->map(ArticleInput::class, $context);
+	}
+
+	public function testMultipleStaticValues(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'id' => 1,
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, staticValues: ['title' => 'Title text', 'content' => 'text']);
+
+		$input = $this->mapper->map(ArticleInput::class, $context);
+
+		self::assertSame('text', $input->content);
+		self::assertSame('Title text', $input->title);
+	}
+
+	public function testWithInvalidStaticValue(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'id' => 1,
+			'title' => 'Test Article',
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, staticValues: ['content' => 42]);
+
+		$this->expectInvalidStaticValues([
+			'content' => 'Invalid type int with value 42, expected string.',
+		]);
+		$this->mapper->map(ArticleInput::class, $context);
+	}
+
+	public function testWithMultipleInvalidStaticValues(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'id' => 1,
+			'title' => 'Test Article',
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, staticValues: ['title' => 42, 'content' => 42]);
+
+		$this->expectInvalidStaticValues([
+			'title' => 'Invalid type int with value 42, expected string.',
+			'content' => 'Invalid type int with value 42, expected string.',
+		]);
+		$this->mapper->map(ArticleInput::class, $context);
+	}
+
+	/**
+	 * @param array<string, string> $messages field => message
+	 */
+	private function expectInvalidStaticValues(array $messages): void
+	{
+		self::expectException(LogicException::class);
+
+		$expression = '/.*?';
+		foreach ($messages as $field => $message) {
+			$expression .= sprintf("Field \"%s\": %s\n", preg_quote($field, '/'), preg_quote($message, '/'));
+		}
+		$expression = trim($expression) . '/';
+
+		self::expectExceptionMessageMatches($expression);
 	}
 
 	/**
