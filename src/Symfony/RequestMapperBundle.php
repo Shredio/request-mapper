@@ -2,6 +2,7 @@
 
 namespace Shredio\RequestMapper\Symfony;
 
+use Shredio\RequestMapper\Request\RequestContextFactory;
 use Shredio\RequestMapper\RequestMapper;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
@@ -17,8 +18,14 @@ final class RequestMapperBundle extends AbstractBundle
 	public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
 	{
 		$services = $container->services();
+
+		$services->set(SymfonyRequestContextFactory::class)
+			->autowire();
+		$services->alias(RequestContextFactory::class, SymfonyRequestContextFactory::class);
+
 		$services->set(RequestMapper::class)
 			->autowire();
+
 		$services->set('shredio.controller_argument_resolver', RequestMapperArgumentResolver::class)
 			->args([service(RequestMapper::class)])
 			->tag('kernel.event_subscriber')
