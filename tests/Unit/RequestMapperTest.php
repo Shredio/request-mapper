@@ -4,8 +4,9 @@ namespace Tests\Unit;
 
 use Shredio\RequestMapper\Attribute\RequestParam;
 use Shredio\RequestMapper\Request\Exception\InvalidRequestException;
+use Shredio\RequestMapper\Request\RequestContext;
 use Shredio\RequestMapper\Request\RequestLocation;
-use Shredio\RequestMapper\Request\SymfonyRequestContext;
+use Shredio\RequestMapper\Symfony\SymfonyRequestContextFactory;
 use Symfony\Component\HttpFoundation\Request;
 use Tests\Fixtures\ArticleInput;
 use Tests\Fixtures\EnumInput;
@@ -48,7 +49,7 @@ final class RequestMapperTest extends MapperTestCase
 	public function testEnumType(): void
 	{
 		$request = $this->createRequest(query: ['status' => 'draft']);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$result = $this->mapper->map(EnumInput::class, $context);
 
@@ -59,7 +60,7 @@ final class RequestMapperTest extends MapperTestCase
 	public function testValueObjectsValidInBody(): void
 	{
 		$request = $this->createRequest('POST', body: ['stringObject' => 'foo', 'intObject' => 42]);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$result = $this->mapper->map(ValueMapperInput::class, $context);
 
@@ -70,7 +71,7 @@ final class RequestMapperTest extends MapperTestCase
 	public function testValueObjectsInvalidTypesInBody(): void
 	{
 		$request = $this->createRequest('POST', body: ['stringObject' => 42, 'intObject' => 'foo']);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$this->expectInvalidRequest([
 			'stringObject' => 'This value should be of type string.',
@@ -82,7 +83,7 @@ final class RequestMapperTest extends MapperTestCase
 	public function testValueObjectsValidInQuery(): void
 	{
 		$request = $this->createRequest(query: ['stringObject' => 'foo', 'intObject' => '42']);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$result = $this->mapper->map(ValueMapperInput::class, $context);
 
@@ -93,7 +94,7 @@ final class RequestMapperTest extends MapperTestCase
 	public function testValueObjectsInvalidQueryType(): void
 	{
 		$request = $this->createRequest(query: ['stringObject' => 42, 'intObject' => '12']);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		// Query should be always only strings
 		$this->expectInvalidRequest([
@@ -106,7 +107,7 @@ final class RequestMapperTest extends MapperTestCase
 	public function testValueObjectsInvalidTypesInQuery(): void
 	{
 		$request = $this->createRequest(query: ['stringObject' => '42', 'intObject' => '12.4']);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$this->expectInvalidRequest([
 			'intObject' => 'This value should be of type int.',
@@ -118,7 +119,7 @@ final class RequestMapperTest extends MapperTestCase
 	public function testValueObjectInParamConfigInQuery(): void
 	{
 		$request = $this->createRequest(query: ['stringObject' => '42', 'intObject' => '12']);
-		$context = new SymfonyRequestContext($request, [
+		$context = SymfonyRequestContextFactory::createFrom($request, [
 			'stringObject' => new RequestParam(location: RequestLocation::Query),
 			'intObject' => new RequestParam(location: RequestLocation::Query),
 		]);
@@ -132,7 +133,7 @@ final class RequestMapperTest extends MapperTestCase
 	public function testInvalidEnumType(): void
 	{
 		$request = $this->createRequest(query: ['status' => 'drafts']);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$this->expectInvalidRequest([
 			'status' => 'The value you selected is not a valid choice.',
@@ -146,7 +147,7 @@ final class RequestMapperTest extends MapperTestCase
 			'title' => 'Test Article',
 			'content' => 'This is test content',
 		]);
-		$context = new SymfonyRequestContext($request, location: RequestLocation::Body);
+		$context = SymfonyRequestContextFactory::createFrom($request, location: RequestLocation::Body);
 
 		$result = $this->mapper->map(SimpleBodyInput::class, $context);
 
@@ -158,7 +159,7 @@ final class RequestMapperTest extends MapperTestCase
 	public function testMapWithCustomParameterNames(): void
 	{
 		$request = $this->createRequest(query: ['filter' => 'active'], path: ['userId' => '100'], headers: ['X-API-Key' => 'secret123']);
-		$context = new SymfonyRequestContext($request, [
+		$context = SymfonyRequestContextFactory::createFrom($request, [
 			'id' => new RequestParam(sourceKey: 'userId', location: RequestLocation::Route),
 			'apiKey' => new RequestParam(sourceKey: 'X-API-Key', location: RequestLocation::Header),
 		]);
@@ -177,7 +178,7 @@ final class RequestMapperTest extends MapperTestCase
 			'id' => 1,
 			'extraOne' => 'value1',
 		]);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$this->expectInvalidRequest([
 			'extraOne' => 'This field was not expected.',
@@ -192,7 +193,7 @@ final class RequestMapperTest extends MapperTestCase
 			'extraOne' => 'value1',
 			'extraTwo' => 'value2',
 		]);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$this->expectInvalidRequest([
 			'extraOne' => 'This field was not expected.',
@@ -209,7 +210,7 @@ final class RequestMapperTest extends MapperTestCase
 			'extraTwo' => 'value2',
 			'extraThree' => 'value3',
 		]);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$this->expectInvalidRequest([
 			'extraOne' => 'This field was not expected.',
@@ -222,7 +223,7 @@ final class RequestMapperTest extends MapperTestCase
 	public function testExceptionMissingRequiredKeyWithCustomKey(): void
 	{
 		$request = $this->createRequest();
-		$context = new SymfonyRequestContext($request, [
+		$context = SymfonyRequestContextFactory::createFrom($request, [
 			'id' => new RequestParam(sourceKey: 'userId', location: RequestLocation::Route),
 		]);
 
@@ -235,7 +236,7 @@ final class RequestMapperTest extends MapperTestCase
 	public function testMapWithoutLocationAttributesForGet(): void
 	{
 		$request = $this->createRequest(query: ['name' => 'John', 'age' => '30']);
-		$context = new SymfonyRequestContext($request, [
+		$context = SymfonyRequestContextFactory::createFrom($request, [
 			'age' => new RequestParam(),
 		]);
 
@@ -249,7 +250,7 @@ final class RequestMapperTest extends MapperTestCase
 	public function testMapWithoutLocationAttributesForPost(): void
 	{
 		$request = $this->createRequest('POST', body: ['name' => 'John', 'age' => 30]);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$result = $this->mapper->map(SimpleInput::class, $context);
 
@@ -261,7 +262,7 @@ final class RequestMapperTest extends MapperTestCase
 	public function testMapWithMissingRequiredParameter(): void
 	{
 		$request = $this->createRequest('POST', body: []);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$this->expectInvalidRequest([
 			'id' => 'This field is missing.',
@@ -306,9 +307,9 @@ final class RequestMapperTest extends MapperTestCase
 		return $request;
 	}
 
-	private function createContextForSimpleArticleInput(Request $request): SymfonyRequestContext
+	private function createContextForSimpleArticleInput(Request $request): RequestContext
 	{
-		return new SymfonyRequestContext($request, [
+		return SymfonyRequestContextFactory::createFrom($request, [
 			'id' => new RequestParam(location: RequestLocation::Route),
 			'published' => new RequestParam(location: RequestLocation::Query),
 		]);

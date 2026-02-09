@@ -14,8 +14,6 @@ interface RequestContext
 
 	public function getDefaultRequestLocation(): RequestLocation;
 
-	public function isTypeStrictByRequestLocation(RequestLocation $location): bool;
-
 	/**
 	 * @return mixed[]
 	 */
@@ -25,10 +23,6 @@ interface RequestContext
 	 * @return mixed[]
 	 */
 	public function getRequestValuesByLocation(RequestLocation $location): array;
-
-	public function getPath(): ?string;
-
-	public function isExtraParametersAllowed(): bool;
 
 	public function normalizeKey(string $key, RequestLocation $location): string;
 

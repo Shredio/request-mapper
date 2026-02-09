@@ -6,7 +6,7 @@ use Shredio\RequestMapper\Attribute\RequestParam;
 use Shredio\RequestMapper\Request\Exception\InvalidRequestException;
 use Shredio\RequestMapper\Request\RequestLocation;
 use Shredio\RequestMapper\Request\SingleRequestParameter;
-use Shredio\RequestMapper\Request\SymfonyRequestContext;
+use Shredio\RequestMapper\Symfony\SymfonyRequestContextFactory;
 use Shredio\TypeSchema\Context\TypeContext;
 use Shredio\TypeSchema\Error\ErrorElement;
 use Shredio\TypeSchema\Mapper\ClassMapper;
@@ -60,7 +60,7 @@ final class MapSingleParamTest extends MapperTestCase
 	public function testMapSingleParamIntegerFromQuery(): void
 	{
 		$request = $this->createRequest(query: ['userId' => '42']);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$param = new SingleRequestParameter(
 			name: 'userId',
@@ -77,7 +77,7 @@ final class MapSingleParamTest extends MapperTestCase
 	public function testMapSingleParamStringFromQuery(): void
 	{
 		$request = $this->createRequest(query: ['name' => 'John Doe']);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$param = new SingleRequestParameter(
 			name: 'name',
@@ -94,7 +94,7 @@ final class MapSingleParamTest extends MapperTestCase
 	public function testMapSingleParamBooleanTrueFromQuery(): void
 	{
 		$request = $this->createRequest(query: ['active' => '1']);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$param = new SingleRequestParameter(
 			name: 'active',
@@ -111,7 +111,7 @@ final class MapSingleParamTest extends MapperTestCase
 	public function testMapSingleParamBooleanFalseFromQuery(): void
 	{
 		$request = $this->createRequest(query: ['active' => '0']);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$param = new SingleRequestParameter(
 			name: 'active',
@@ -128,7 +128,7 @@ final class MapSingleParamTest extends MapperTestCase
 	public function testMapSingleParamIntegerFromRoute(): void
 	{
 		$request = $this->createRequest(path: ['id' => '123']);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$param = new SingleRequestParameter(
 			name: 'id',
@@ -145,7 +145,7 @@ final class MapSingleParamTest extends MapperTestCase
 	public function testMapSingleParamFromBodyStrict(): void
 	{
 		$request = $this->createRequest('POST', body: ['age' => 25]);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$param = new SingleRequestParameter(
 			name: 'age',
@@ -162,7 +162,7 @@ final class MapSingleParamTest extends MapperTestCase
 	public function testMapSingleParamFromBodyStrictFailsWithString(): void
 	{
 		$request = $this->createRequest('POST', body: ['age' => '25']);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$param = new SingleRequestParameter(
 			name: 'age',
@@ -179,7 +179,7 @@ final class MapSingleParamTest extends MapperTestCase
 	public function testMapSingleParamFromHeader(): void
 	{
 		$request = $this->createRequest(headers: ['X-API-Key' => 'secret123']);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$param = new SingleRequestParameter(
 			name: 'apiKey',
@@ -196,7 +196,7 @@ final class MapSingleParamTest extends MapperTestCase
 	public function testMapSingleParamFromHeaderCaseInsensitive(): void
 	{
 		$request = $this->createRequest(headers: ['X-Custom-Header' => 'value']);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$param = new SingleRequestParameter(
 			name: 'customHeader',
@@ -213,7 +213,7 @@ final class MapSingleParamTest extends MapperTestCase
 	public function testMapSingleParamOptionalWithDefaultValue(): void
 	{
 		$request = $this->createRequest(query: []);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$param = new SingleRequestParameter(
 			name: 'limit',
@@ -231,7 +231,7 @@ final class MapSingleParamTest extends MapperTestCase
 	public function testMapSingleParamOptionalWithNullDefault(): void
 	{
 		$request = $this->createRequest(query: []);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$param = new SingleRequestParameter(
 			name: 'filter',
@@ -249,7 +249,7 @@ final class MapSingleParamTest extends MapperTestCase
 	public function testMapSingleParamOptionalProvidedOverridesDefault(): void
 	{
 		$request = $this->createRequest(query: ['limit' => '50']);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$param = new SingleRequestParameter(
 			name: 'limit',
@@ -267,7 +267,7 @@ final class MapSingleParamTest extends MapperTestCase
 	public function testMapSingleParamWithCustomSourceKey(): void
 	{
 		$request = $this->createRequest(query: ['user_id' => '999']);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$param = new SingleRequestParameter(
 			name: 'userId',
@@ -284,7 +284,7 @@ final class MapSingleParamTest extends MapperTestCase
 	public function testMapSingleParamMissingRequiredParameter(): void
 	{
 		$request = $this->createRequest(query: []);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$param = new SingleRequestParameter(
 			name: 'id',
@@ -301,7 +301,7 @@ final class MapSingleParamTest extends MapperTestCase
 	public function testMapSingleParamInvalidTypeInQuery(): void
 	{
 		$request = $this->createRequest(query: ['age' => 'not-a-number']);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$param = new SingleRequestParameter(
 			name: 'age',
@@ -318,7 +318,7 @@ final class MapSingleParamTest extends MapperTestCase
 	public function testMapSingleParamEnumFromQuery(): void
 	{
 		$request = $this->createRequest(query: ['status' => 'draft']);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$param = new SingleRequestParameter(
 			name: 'status',
@@ -336,7 +336,7 @@ final class MapSingleParamTest extends MapperTestCase
 	public function testMapSingleParamInvalidEnumValue(): void
 	{
 		$request = $this->createRequest(query: ['status' => 'invalid']);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$param = new SingleRequestParameter(
 			name: 'status',
@@ -353,7 +353,7 @@ final class MapSingleParamTest extends MapperTestCase
 	public function testMapSingleParamLenientConversionFromQuery(): void
 	{
 		$request = $this->createRequest(query: ['price' => '19.99']);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$param = new SingleRequestParameter(
 			name: 'price',
@@ -370,7 +370,7 @@ final class MapSingleParamTest extends MapperTestCase
 	public function testMapSingleParamArrayFromBody(): void
 	{
 		$request = $this->createRequest('POST', body: ['tags' => ['php', 'testing', 'mapper']]);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$param = new SingleRequestParameter(
 			name: 'tags',
@@ -387,7 +387,7 @@ final class MapSingleParamTest extends MapperTestCase
 	public function testMapSingleParamNullableWithNullValue(): void
 	{
 		$request = $this->createRequest('POST', body: ['description' => null]);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$param = new SingleRequestParameter(
 			name: 'description',
@@ -404,7 +404,7 @@ final class MapSingleParamTest extends MapperTestCase
 	public function testMapSingleParamNullableWithValue(): void
 	{
 		$request = $this->createRequest('POST', body: ['description' => 'Some text']);
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$param = new SingleRequestParameter(
 			name: 'description',
@@ -422,7 +422,7 @@ final class MapSingleParamTest extends MapperTestCase
 	{
 		$request = $this->createRequest();
 		$request->attributes->set('userId', '777');
-		$context = new SymfonyRequestContext($request);
+		$context = SymfonyRequestContextFactory::createFrom($request);
 
 		$param = new SingleRequestParameter(
 			name: 'userId',

@@ -4,7 +4,7 @@ namespace Tests\Unit;
 
 use Shredio\RequestMapper\Attribute\RequestParam;
 use Shredio\RequestMapper\Request\RequestLocation;
-use Shredio\RequestMapper\Request\SymfonyRequestContext;
+use Shredio\RequestMapper\Symfony\SymfonyRequestContextFactory;
 use Symfony\Component\HttpFoundation\Request;
 use Tests\Fixtures\ComplexInput;
 use Tests\MapperTestCase;
@@ -26,7 +26,7 @@ final class ComplexMappingTest extends MapperTestCase
 		$request->attributes->set('pathId', '123');
 		$request->attributes->set('customPathName', 'custom_path');
 
-		$context = new SymfonyRequestContext($request, [
+		$context = SymfonyRequestContextFactory::createFrom($request, [
 			'pathId' => new RequestParam(location: RequestLocation::Route),
 			'queryParam' => new RequestParam(location: RequestLocation::Query),
 			'headerValue' => new RequestParam(location: RequestLocation::Header),

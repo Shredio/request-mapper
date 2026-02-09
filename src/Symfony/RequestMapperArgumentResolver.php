@@ -11,7 +11,6 @@ use Shredio\RequestMapper\Field\FieldMirror;
 use Shredio\RequestMapper\Field\StaticFieldType;
 use Shredio\RequestMapper\Request\Exception\InvalidRequestException;
 use Shredio\RequestMapper\Request\SingleRequestParameter;
-use Shredio\RequestMapper\Request\SymfonyRequestContext;
 use Shredio\RequestMapper\RequestMapper;
 use Shredio\TypeSchema\Exception\UnsupportedTypeException;
 use Shredio\TypeSchema\Helper\TypeSchemaHelper;
@@ -96,12 +95,7 @@ final readonly class RequestMapperArgumentResolver implements EventSubscriberInt
 			throw new LogicException(\sprintf('Could not resolve the "$%s" controller argument: argument should be typed.', $argument->getName()));
 		}
 
-		$context = new SymfonyRequestContext(
-			$request,
-			$attribute->configuration,
-			$attribute->location,
-			$attribute->path,
-		);
+		$context = SymfonyRequestContextFactory::createFrom($request, $attribute->configuration, $attribute->location);
 
 		if (class_exists($type) && !enum_exists($type)) {
 			return $this->requestMapper->map($type, $context);
@@ -119,7 +113,6 @@ final readonly class RequestMapperArgumentResolver implements EventSubscriberInt
 		RequestParam $attribute,
 	): mixed
 	{
-		$location = $attribute->location ?? SymfonyRequestContext::determineDefaultRequestLocation($request);
 		/** @var class-string $controllerName */
 		$controllerName = $argument->getControllerName();
 
@@ -134,6 +127,8 @@ final readonly class RequestMapperArgumentResolver implements EventSubscriberInt
 			throw new LogicException(\sprintf('Could not resolve the "$%s" controller argument: unsupported type "%s".', $argument->getName(), $argument->getType()));
 		}
 
+		$context = SymfonyRequestContextFactory::createFrom($request, [], $attribute->location);
+
 		return $this->requestMapper->mapSingleParam(
 			new SingleRequestParameter(
 				$argument->getName(),
@@ -144,7 +139,7 @@ final readonly class RequestMapperArgumentResolver implements EventSubscriberInt
 			),
 			$controllerName,
 			$attribute,
-			new SymfonyRequestContext($request, location: $location),
+			$context,
 		);
 	}
 
