@@ -2,7 +2,9 @@
 
 namespace Shredio\RequestMapper\Symfony;
 
+use Shredio\RequestMapper\DefaultRequestMapper;
 use Shredio\RequestMapper\Request\RequestContextFactory;
+use Shredio\RequestMapper\RequestMapper;
 use Shredio\RequestMapper\RequestParameterMapper;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
@@ -25,6 +27,10 @@ final class RequestMapperBundle extends AbstractBundle
 
 		$services->set(RequestParameterMapper::class)
 			->autowire();
+
+		$services->set(DefaultRequestMapper::class)
+			->autowire();
+		$services->alias(RequestMapper::class, DefaultRequestMapper::class);
 
 		$services->set('shredio.controller_argument_resolver', RequestMapperArgumentResolver::class)
 			->args([service(RequestParameterMapper::class)])
