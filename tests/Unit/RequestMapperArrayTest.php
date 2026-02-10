@@ -7,6 +7,7 @@ use Shredio\RequestMapper\Request\RequestLocation;
 use Shredio\RequestMapper\RequestMapperConfiguration;
 use Shredio\RequestMapper\Symfony\SymfonyRequestContextFactory;
 use Shredio\TypeSchema\TypeSchema;
+use Symfony\Component\HttpFoundation\Request;
 use Tests\Fixtures\IntBackedStatus;
 use Tests\Fixtures\Status;
 use Tests\RequestMapperTestCase;
@@ -577,6 +578,53 @@ final class RequestMapperArrayTest extends RequestMapperTestCase
 			'id' => 'This value is not valid.',
 		]);
 		$this->mapper->mapToArray($type, $context);
+	}
+
+	public function testMapFromAllLocationsWithSourceKeys(): void
+	{
+		$request = Request::create(
+			'/test?queryParam=query_value&customQueryName=42',
+			'POST',
+			server: ['HTTP_HOST' => 'example.com'],
+			content: json_encode(['bodyContent' => 'body_value'])
+		);
+		$request->headers->set('Content-Type', 'application/json');
+		$request->headers->set('headerValue', 'header_value');
+		$request->attributes->set('attributeValue', 'attr_value');
+		$request->attributes->set('pathId', '123');
+		$request->attributes->set('customPathName', 'custom_path');
+
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration([
+			'pathId' => new RequestParam(location: RequestLocation::Route),
+			'queryParam' => new RequestParam(location: RequestLocation::Query),
+			'headerValue' => new RequestParam(location: RequestLocation::Header),
+			'attributeValue' => new RequestParam(location: RequestLocation::Attribute),
+			'serverHost' => new RequestParam('HTTP_HOST', RequestLocation::Server),
+			'customPath' => new RequestParam('customPathName', RequestLocation::Route),
+			'customQuery' => new RequestParam('customQueryName', RequestLocation::Query),
+		]));
+
+		$type = TypeSchema::get()->arrayShape([
+			'pathId' => TypeSchema::get()->int(),
+			'queryParam' => TypeSchema::get()->string(),
+			'bodyContent' => TypeSchema::get()->string(),
+			'headerValue' => TypeSchema::get()->string(),
+			'attributeValue' => TypeSchema::get()->string(),
+			'serverHost' => TypeSchema::get()->string(),
+			'customPath' => TypeSchema::get()->optional(TypeSchema::get()->string()),
+			'customQuery' => TypeSchema::get()->optional(TypeSchema::get()->int()),
+		]);
+
+		$result = $this->mapper->mapToArray($type, $context);
+
+		self::assertSame(123, $result['pathId']);
+		self::assertSame('query_value', $result['queryParam']);
+		self::assertSame('body_value', $result['bodyContent']);
+		self::assertSame('header_value', $result['headerValue']);
+		self::assertSame('attr_value', $result['attributeValue']);
+		self::assertSame('example.com', $result['serverHost']);
+		self::assertSame('custom_path', $result['customPath']);
+		self::assertSame(42, $result['customQuery']);
 	}
 
 }
