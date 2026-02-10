@@ -4,6 +4,7 @@ namespace Shredio\RequestMapper\Attribute;
 
 use Attribute;
 use Shredio\RequestMapper\Request\RequestLocation;
+use Shredio\RequestMapper\RequestMapperConfiguration;
 
 /**
  * Maps data from HTTP request to object parameters.
@@ -20,6 +21,14 @@ final readonly class MapFromRequest
 		public ?RequestLocation $location = null,
 	)
 	{
+	}
+
+	public function createConfiguration(): RequestMapperConfiguration
+	{
+		return new RequestMapperConfiguration(
+			parameters: $this->configuration,
+			location: $this->location,
+		);
 	}
 
 }

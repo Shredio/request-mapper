@@ -4,6 +4,7 @@ namespace Tests\Unit;
 
 use Shredio\RequestMapper\Attribute\RequestParam;
 use Shredio\RequestMapper\Request\RequestLocation;
+use Shredio\RequestMapper\RequestMapperConfiguration;
 use Shredio\RequestMapper\Symfony\SymfonyRequestContextFactory;
 use Symfony\Component\HttpFoundation\Request;
 use Tests\Fixtures\ComplexInput;
@@ -26,7 +27,7 @@ final class ComplexMappingTest extends MapperTestCase
 		$request->attributes->set('pathId', '123');
 		$request->attributes->set('customPathName', 'custom_path');
 
-		$context = SymfonyRequestContextFactory::createFrom($request, [
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration([
 			'pathId' => new RequestParam(location: RequestLocation::Route),
 			'queryParam' => new RequestParam(location: RequestLocation::Query),
 			'headerValue' => new RequestParam(location: RequestLocation::Header),
@@ -34,9 +35,9 @@ final class ComplexMappingTest extends MapperTestCase
 			'serverHost' => new RequestParam('HTTP_HOST', RequestLocation::Server),
 			'customPath' => new RequestParam('customPathName', RequestLocation::Route),
 			'customQuery' => new RequestParam('customQueryName', RequestLocation::Query),
-		]);
+		]));
 
-		$result = $this->mapper->map(ComplexInput::class, $context);
+		$result = $this->mapper->mapToObject(ComplexInput::class, $context);
 
 		self::assertInstanceOf(ComplexInput::class, $result);
 		self::assertSame(123, $result->pathId);

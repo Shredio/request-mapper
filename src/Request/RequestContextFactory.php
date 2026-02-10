@@ -2,15 +2,11 @@
 
 namespace Shredio\RequestMapper\Request;
 
-use Shredio\RequestMapper\Attribute\RequestParam;
+use Shredio\RequestMapper\RequestMapperConfiguration;
 
 interface RequestContextFactory
 {
 
-	/**
-	 * @param array<non-empty-string, RequestParam|RequestLocation> $paramConfig
-	 * @param array<non-empty-string, mixed> $staticValues
-	 */
-	public function create(array $paramConfig = [], ?RequestLocation $location = null, array $staticValues = []): RequestContext;
+	public function create(?RequestMapperConfiguration $configuration = null): RequestContext;
 
 }

@@ -7,13 +7,11 @@ use Shredio\Problem\Violation\GlobalViolation;
 use Shredio\RequestMapper\Attribute\MapFromRequest;
 use Shredio\RequestMapper\Attribute\RequestParam;
 use Shredio\RequestMapper\Attribute\StringBodyFromRequest;
-use Shredio\RequestMapper\Field\FieldMirror;
-use Shredio\RequestMapper\Field\StaticFieldType;
 use Shredio\RequestMapper\Request\Exception\InvalidRequestException;
-use Shredio\RequestMapper\Request\SingleRequestParameter;
 use Shredio\RequestMapper\RequestParameterMapper;
 use Shredio\TypeSchema\Exception\UnsupportedTypeException;
 use Shredio\TypeSchema\Helper\TypeSchemaHelper;
+use Shredio\TypeSchema\TypeSchema;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Controller\ValueResolverInterface;
@@ -95,10 +93,10 @@ final readonly class RequestMapperArgumentResolver implements EventSubscriberInt
 			throw new LogicException(\sprintf('Could not resolve the "$%s" controller argument: argument should be typed.', $argument->getName()));
 		}
 
-		$context = SymfonyRequestContextFactory::createFrom($request, $attribute->configuration, $attribute->location);
+		$context = SymfonyRequestContextFactory::createFrom($request, $attribute->createConfiguration());
 
 		if (class_exists($type) && !enum_exists($type)) {
-			return $this->requestMapper->map($type, $context);
+			return $this->requestMapper->mapToObject($type, $context);
 		} else {
 			throw new LogicException(sprintf('Could not resolve the "$%s" controller argument: type "%s" is not a class.', $argument->getName(), $type));
 		}
@@ -122,25 +120,40 @@ final readonly class RequestMapperArgumentResolver implements EventSubscriberInt
 		}
 
 		try {
-			$schema = TypeSchemaHelper::fromStringType($type, $argument->isNullable());
+			$type = TypeSchemaHelper::fromStringType($type, $argument->isNullable());
 		} catch (UnsupportedTypeException) {
 			throw new LogicException(\sprintf('Could not resolve the "$%s" controller argument: unsupported type "%s".', $argument->getName(), $argument->getType()));
 		}
 
-		$context = SymfonyRequestContextFactory::createFrom($request, [], $attribute->location);
+		$ts = TypeSchema::get();
+		if ($argument->isNullable()) {
+			$type = $ts->nullable($type);
+		}
 
-		return $this->requestMapper->mapSingleParam(
-			new SingleRequestParameter(
-				$argument->getName(),
-				$schema,
-				$argument->isNullable(),
-				$argument->hasDefaultValue(),
-				$argument->hasDefaultValue() ? $argument->getDefaultValue() : null,
-			),
-			$controllerName,
-			$attribute,
-			$context,
-		);
+		if ($argument->hasDefaultValue()) {
+			$type = $ts->optional($type);
+		}
+
+		$context = SymfonyRequestContextFactory::createFrom($request, $attribute->createConfiguration());
+
+		$sourceKey = $attribute->sourceKey ?? $argument->getName();
+		$isOptional = $argument->hasDefaultValue();
+
+		$values = $this->requestMapper->mapToArray($ts->arrayShape([
+			$sourceKey => $type,
+		]), $context);
+
+		if (!array_key_exists($sourceKey, $values)) {
+			if ($isOptional) {
+				return $argument->getDefaultValue();
+			}
+
+			throw new \Shredio\RequestMapper\Exception\LogicException(
+				sprintf('Could not resolve the "$%s" controller argument: missing required request parameter "%s".', $argument->getName(), $sourceKey),
+			);
+		}
+
+		return $values[$sourceKey];
 	}
 
 	/**

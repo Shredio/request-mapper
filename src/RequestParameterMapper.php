@@ -11,7 +11,6 @@ use Shredio\RequestMapper\Exception\LogicException;
 use Shredio\RequestMapper\Request\Exception\InvalidRequestException;
 use Shredio\RequestMapper\Request\RequestContext;
 use Shredio\RequestMapper\Request\RequestLocation;
-use Shredio\RequestMapper\Request\SingleRequestParameter;
 use Shredio\TypeSchema\Config\TypeConfig;
 use Shredio\TypeSchema\Config\TypeHierarchyConfig;
 use Shredio\TypeSchema\Conversion\ConversionStrategy;
@@ -21,6 +20,7 @@ use Shredio\TypeSchema\Error\ErrorElement;
 use Shredio\TypeSchema\Error\ErrorReport;
 use Shredio\TypeSchema\Error\ErrorReportConfig;
 use Shredio\TypeSchema\Error\Path;
+use Shredio\TypeSchema\Types\Type;
 use Shredio\TypeSchema\TypeSchema;
 use Shredio\TypeSchema\TypeSchemaProcessor;
 
@@ -43,49 +43,15 @@ final readonly class RequestParameterMapper
 	}
 
 	/**
-	 * @param class-string $controllerName
+	 * @template T of array<string, mixed>
+	 * @param Type<T> $type
+	 * @return T
 	 *
 	 * @throws InvalidRequestException
 	 */
-	public function mapSingleParam(SingleRequestParameter $requestParam, string $controllerName, RequestParam $requestParamConfig, RequestContext $context): mixed
+	public function mapToArray(Type $type, RequestContext $context): array
 	{
-		$paramLocation = $requestParamConfig->location ?? $context->getDefaultRequestLocation();
-		$requestValues = $context->getRequestValuesByLocation($paramLocation);
-		$conversionType = $this->getConversionTypeByLocation($paramLocation);
-		$conversionStrategy = $this->getConversionStrategyForTypeSchema($conversionType);
-
-		[$value, $isSet] = $this->processParamConfig(
-			$requestParam->name,
-			$requestParamConfig,
-			$requestValues,
-			$paramLocation,
-			$conversionType,
-			$context,
-		);
-
-		$values = [];
-		if ($isSet) {
-			$values[$requestParam->name] = $value;
-		} else if ($requestParam->isOptional) {
-			return $requestParam->defaultValue;
-		}
-
-		$value = $this->typeSchemaProcessor->parse(
-			$values,
-			TypeSchema::get()->arrayShape([
-				$requestParam->name => $requestParam->typeSchema,
-			]),
-			new TypeConfig($conversionStrategy),
-			collectErrors: true,
-		);
-
-		if ($value instanceof ErrorElement) {
-			$reports = $value->getReports(config: $this->errorReportConfig);
-
-			throw new InvalidRequestException($controllerName, $this->createViolations($reports));
-		}
-
-		return $value[$requestParam->name];
+		return $this->mapToType($type, $context, 'array');
 	}
 
 	/**
@@ -95,26 +61,38 @@ final readonly class RequestParameterMapper
 	 *
 	 * @throws InvalidRequestException
 	 */
-	public function map(string $target, RequestContext $context): object
+	public function mapToObject(string $target, RequestContext $context): object
+	{
+		return $this->mapToType(TypeSchema::get()->mapper($target), $context, $target);
+	}
+
+	/**
+	 * @template T
+	 * @param Type<T> $type
+	 * @param non-empty-string $targetType
+	 * @return T
+	 *
+	 * @throws InvalidRequestException
+	 */
+	private function mapToType(Type $type, RequestContext $context, string $targetType): mixed
 	{
 		[$requestValues, $typeConfig, $keysToReindex] = $this->getRequestValuesAndTypeConfig($context);
-
-		[$requestValues, $extraKeysError] = $this->mergeRequestValuesWithStaticValues($requestValues, $context->getStaticValues(), $typeConfig);
+		[$requestValues, $extraKeysError] = $this->mergeRequestValuesWithPresetValues($requestValues, $context->getPresetValues(), $typeConfig);
 
 		$value = $this->typeSchemaProcessor->parse(
 			$requestValues,
-			TypeSchema::get()->mapper($target),
+			$type,
 			$typeConfig,
 			collectErrors: true,
 		);
 
 		if ($value instanceof ErrorElement) {
 			$reports = $value->getReports(config: $this->errorReportConfig);
-			$this->checkForErrorsForStaticValues($reports, $context->getStaticValues(), $target);
+			$this->checkForErrorsForPresetValues($reports, $context->getPresetValues(), $targetType);
 
-			throw new InvalidRequestException($target, $this->createViolations($reports, $keysToReindex));
+			throw new InvalidRequestException($targetType, $this->createViolations($reports, $keysToReindex));
 		} else if ($extraKeysError !== null) {
-			throw new InvalidRequestException($target, $this->createViolations($extraKeysError->getReports(), $keysToReindex));
+			throw new InvalidRequestException($targetType, $this->createViolations($extraKeysError->getReports(), $keysToReindex));
 		}
 
 		return $value;
@@ -271,17 +249,17 @@ final readonly class RequestParameterMapper
 	}
 
 	/**
-	 * Checks if there are any errors related to static values and throws a logic exception if there are, since static values should be correct by definition.
-	 * This is to catch any potential bugs in the implementation of the RequestMapper or the provided static values.
-	 * If there are errors related to static values, it indicates a problem that needs to be addressed by the developers, rather than an issue with the client's request.
+	 * Checks if there are any errors related to preset values and throws a logic exception if there are, since preset values should be correct by definition.
+	 * This is to catch any potential bugs in the implementation of the RequestMapper or the provided preset values.
+	 * If there are errors related to preset values, it indicates a problem that needs to be addressed by the developers, rather than an issue with the client's request.
 	 *
 	 * @param array<ErrorReport> $reports
-	 * @param array<non-empty-string, mixed> $staticValues
-	 * @param class-string $target
+	 * @param array<non-empty-string, mixed> $presetValues
+	 * @param non-empty-string $target
 	 */
-	private function checkForErrorsForStaticValues(array $reports, array $staticValues, string $target): void
+	private function checkForErrorsForPresetValues(array $reports, array $presetValues, string $target): void
 	{
-		if ($staticValues === []) {
+		if ($presetValues === []) {
 			return;
 		}
 
@@ -292,21 +270,21 @@ final readonly class RequestParameterMapper
 			}
 
 			$pathKey = $report->path[0];
-			if (array_key_exists($pathKey->path, $staticValues)) {
+			if (array_key_exists($pathKey->path, $presetValues)) {
 				$currentReports[] = $report;
 			}
 		}
 
 		if ($currentReports !== []) {
-			$this->throwStaticValuesExceptionFromReports($currentReports, $target);
+			$this->throwPresetValuesExceptionFromReports($currentReports, $target);
 		}
 	}
 
 	/**
 	 * @param non-empty-list<ErrorReport> $reports
-	 * @param class-string $target
+	 * @param non-empty-string $target
 	 */
-	private function throwStaticValuesExceptionFromReports(array $reports, string $target): never
+	private function throwPresetValuesExceptionFromReports(array $reports, string $target): never
 	{
 		$messages = [];
 		foreach ($reports as $report) {
@@ -321,7 +299,7 @@ final readonly class RequestParameterMapper
 		}
 
 		throw new LogicException(sprintf(
-			"Errors related to static values found when mapping request to %s:\n%s",
+			"Errors related to preset values found when mapping request to %s:\n%s",
 			$target,
 			implode("\n", $messages),
 		));
@@ -329,13 +307,13 @@ final readonly class RequestParameterMapper
 
 	/**
 	 * @param mixed[] $requestValues
-	 * @param array<non-empty-string, mixed> $staticValues
+	 * @param array<non-empty-string, mixed> $presetValues
 	 * @return array{ mixed[], ErrorElement|null }
 	 */
-	private function mergeRequestValuesWithStaticValues(array $requestValues, array $staticValues, TypeConfig $typeConfig): array
+	private function mergeRequestValuesWithPresetValues(array $requestValues, array $presetValues, TypeConfig $typeConfig): array
 	{
 		if (
-			$staticValues === [] ||
+			$presetValues === [] ||
 			$typeConfig->defaultExtraKeysBehavior === ExtraKeysBehavior::Accept ||
 			$typeConfig->defaultExtraKeysBehavior === ExtraKeysBehavior::Ignore
 		) {
@@ -344,7 +322,7 @@ final readonly class RequestParameterMapper
 
 		$extraKeys = [];
 
-		foreach ($staticValues as $key => $value) {
+		foreach ($presetValues as $key => $value) {
 			if (array_key_exists($key, $requestValues)) {
 				$extraKeys[$key] = null;
 			}
@@ -355,7 +333,7 @@ final readonly class RequestParameterMapper
 		if ($extraKeys !== []) {
 			$errors = $this->typeSchemaProcessor->parse($extraKeys, TypeSchema::get()->arrayShape([])); // @phpstan-ignore argument.templateType
 			if (!$errors instanceof ErrorElement) {
-				throw new LogicException('Expected errors when merging static values with request values, but got none.');
+				throw new LogicException('Expected errors when merging preset values with request values, but got none.');
 			}
 
 			return [$requestValues, $errors];

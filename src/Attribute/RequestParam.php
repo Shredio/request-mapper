@@ -4,6 +4,7 @@ namespace Shredio\RequestMapper\Attribute;
 
 use Attribute;
 use Shredio\RequestMapper\Request\RequestLocation;
+use Shredio\RequestMapper\RequestMapperConfiguration;
 
 #[Attribute(Attribute::TARGET_PARAMETER)]
 final readonly class RequestParam
@@ -17,6 +18,11 @@ final readonly class RequestParam
 		public ?RequestLocation $location = null,
 	)
 	{
+	}
+
+	public function createConfiguration(): RequestMapperConfiguration
+	{
+		return new RequestMapperConfiguration(location: $this->location);
 	}
 
 

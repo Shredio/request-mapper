@@ -9,7 +9,7 @@ final readonly class DefaultRequestContext implements RequestContext
 
 	/**
 	 * @param array<non-empty-string, RequestParam|RequestLocation> $paramConfig
-	 * @param array<non-empty-string, mixed> $staticValues
+	 * @param array<non-empty-string, mixed> $presetValues
 	 */
 	public function __construct(
 		private RequestValueProvider $valueProvider,
@@ -17,7 +17,7 @@ final readonly class DefaultRequestContext implements RequestContext
 		private RequestKeyNormalizer $keyNormalizer,
 		private array $paramConfig = [],
 		private RequestLocation $location = RequestLocation::Query,
-		private array $staticValues = [],
+		private array $presetValues = [],
 	)
 	{
 	}
@@ -25,9 +25,9 @@ final readonly class DefaultRequestContext implements RequestContext
 	/**
 	 * @return array<non-empty-string, mixed>
 	 */
-	public function getStaticValues(): array
+	public function getPresetValues(): array
 	{
-		return $this->staticValues;
+		return $this->presetValues;
 	}
 
 	/**
