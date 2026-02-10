@@ -7,6 +7,7 @@ use Shredio\RequestMapper\Request\RequestLocation;
 use Shredio\RequestMapper\RequestMapperConfiguration;
 use Shredio\RequestMapper\Symfony\SymfonyRequestContextFactory;
 use Shredio\TypeSchema\TypeSchema;
+use Tests\Fixtures\IntBackedStatus;
 use Tests\Fixtures\Status;
 use Tests\RequestMapperTestCase;
 
@@ -362,6 +363,218 @@ final class RequestMapperArrayTest extends RequestMapperTestCase
 		$this->expectInvalidPresetValues([
 			'title' => 'Invalid type int with value 42, expected string.',
 			'content' => 'Invalid type int with value 42, expected string.',
+		]);
+		$this->mapper->mapToArray($type, $context);
+	}
+
+	public function testMapIntBackedEnumFromQuery(): void
+	{
+		$request = $this->createRequest(query: ['status' => '1']);
+		$context = SymfonyRequestContextFactory::createFrom($request);
+
+		$type = TypeSchema::get()->arrayShape([
+			'status' => TypeSchema::get()->mapper(IntBackedStatus::class),
+		]);
+
+		$result = $this->mapper->mapToArray($type, $context);
+
+		self::assertSame(1, $result['status']->value);
+	}
+
+	public function testRejectFloatStringForIntParameter(): void
+	{
+		$request = $this->createRequest(query: ['name' => 'John', 'age' => '30.5']);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration([
+			'age' => new RequestParam(),
+		]));
+
+		$type = TypeSchema::get()->arrayShape([
+			'name' => TypeSchema::get()->string(),
+			'age' => TypeSchema::get()->optional(TypeSchema::get()->int()),
+		]);
+
+		$this->expectInvalidRequest([
+			'age' => 'This value is not valid.',
+		]);
+		$this->mapper->mapToArray($type, $context);
+	}
+
+	public function testMapBooleanFalseFromBody(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'id' => 1,
+			'title' => 'Test',
+			'content' => 'Text',
+			'published' => false,
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request);
+
+		$type = TypeSchema::get()->arrayShape([
+			'id' => TypeSchema::get()->int(),
+			'title' => TypeSchema::get()->string(),
+			'content' => TypeSchema::get()->string(),
+			'category' => TypeSchema::get()->optional(TypeSchema::get()->string()),
+			'published' => TypeSchema::get()->optional(TypeSchema::get()->bool()),
+		]);
+
+		$result = $this->mapper->mapToArray($type, $context);
+
+		self::assertFalse($result['published']);
+	}
+
+	public function testMapFromAttributeLocation(): void
+	{
+		$request = $this->createRequest(query: ['filter' => 'active']);
+		$request->attributes->set('userId', '100');
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration([
+			'id' => new RequestParam(sourceKey: 'userId', location: RequestLocation::Attribute),
+		]));
+
+		$type = TypeSchema::get()->arrayShape([
+			'id' => TypeSchema::get()->int(),
+			'filter' => TypeSchema::get()->optional(TypeSchema::get()->string()),
+			'apiKey' => TypeSchema::get()->optional(TypeSchema::get()->string()),
+		]);
+
+		$result = $this->mapper->mapToArray($type, $context);
+
+		self::assertSame(100, $result['id']);
+		self::assertSame('active', $result['filter']);
+	}
+
+	public function testMapFromServerLocation(): void
+	{
+		$request = $this->createRequest(query: ['name' => 'John']);
+		$request->server->set('CUSTOM_PORT', '8080');
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration([
+			'age' => new RequestParam(sourceKey: 'CUSTOM_PORT', location: RequestLocation::Server),
+		]));
+
+		$type = TypeSchema::get()->arrayShape([
+			'name' => TypeSchema::get()->string(),
+			'age' => TypeSchema::get()->optional(TypeSchema::get()->int()),
+		]);
+
+		$result = $this->mapper->mapToArray($type, $context);
+
+		self::assertSame('John', $result['name']);
+		self::assertSame(8080, $result['age']);
+	}
+
+	public function testMapHeaderWithCaseInsensitiveKey(): void
+	{
+		$request = $this->createRequest(query: ['filter' => 'active'], path: ['userId' => '100'], headers: ['x-api-key' => 'secret123']);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration([
+			'id' => new RequestParam(sourceKey: 'userId', location: RequestLocation::Route),
+			'apiKey' => new RequestParam(sourceKey: 'X-API-Key', location: RequestLocation::Header),
+		]));
+
+		$type = TypeSchema::get()->arrayShape([
+			'id' => TypeSchema::get()->int(),
+			'filter' => TypeSchema::get()->optional(TypeSchema::get()->string()),
+			'apiKey' => TypeSchema::get()->optional(TypeSchema::get()->string()),
+		]);
+
+		$result = $this->mapper->mapToArray($type, $context);
+
+		self::assertSame('secret123', $result['apiKey']);
+	}
+
+	public function testMapWithLocationAsParamConfig(): void
+	{
+		$request = $this->createRequest(path: ['id' => '123']);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration([
+			'id' => RequestLocation::Route,
+		]));
+
+		$type = TypeSchema::get()->arrayShape([
+			'id' => TypeSchema::get()->int(),
+			'category' => TypeSchema::get()->optional(TypeSchema::get()->string()),
+			'published' => TypeSchema::get()->optional(TypeSchema::get()->bool()),
+		]);
+
+		$result = $this->mapper->mapToArray($type, $context);
+
+		self::assertSame(123, $result['id']);
+	}
+
+	public function testMapWithDefaultBodyLocationForPostRequest(): void
+	{
+		$request = $this->createRequest('POST', query: ['name' => 'FromQuery'], body: ['name' => 'FromBody', 'age' => 30]);
+		$context = SymfonyRequestContextFactory::createFrom($request);
+
+		$type = TypeSchema::get()->arrayShape([
+			'name' => TypeSchema::get()->string(),
+			'age' => TypeSchema::get()->optional(TypeSchema::get()->int()),
+		]);
+
+		$result = $this->mapper->mapToArray($type, $context);
+
+		self::assertSame('FromBody', $result['name']);
+	}
+
+	public function testPresetValueForOptionalField(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'id' => 1,
+			'title' => 'Test Article',
+			'content' => 'Text',
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration(presetValues: ['category' => 'preset']));
+
+		$type = TypeSchema::get()->arrayShape([
+			'id' => TypeSchema::get()->int(),
+			'title' => TypeSchema::get()->string(),
+			'content' => TypeSchema::get()->string(),
+			'category' => TypeSchema::get()->optional(TypeSchema::get()->string()),
+			'published' => TypeSchema::get()->optional(TypeSchema::get()->bool()),
+		]);
+
+		$result = $this->mapper->mapToArray($type, $context);
+
+		self::assertSame('preset', $result['category']);
+	}
+
+	public function testRejectMissingMultipleRequiredFields(): void
+	{
+		$request = $this->createRequest('POST', body: []);
+		$context = SymfonyRequestContextFactory::createFrom($request);
+
+		$type = TypeSchema::get()->arrayShape([
+			'id' => TypeSchema::get()->int(),
+			'title' => TypeSchema::get()->string(),
+			'content' => TypeSchema::get()->string(),
+			'category' => TypeSchema::get()->optional(TypeSchema::get()->string()),
+			'published' => TypeSchema::get()->optional(TypeSchema::get()->bool()),
+		]);
+
+		$this->expectInvalidRequest([
+			'id' => 'This field is missing.',
+			'title' => 'This field is missing.',
+			'content' => 'This field is missing.',
+		]);
+		$this->mapper->mapToArray($type, $context);
+	}
+
+	public function testRejectInvalidTypeInBody(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'id' => 'not-a-number',
+			'title' => 'Test',
+			'content' => 'Text',
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request);
+
+		$type = TypeSchema::get()->arrayShape([
+			'id' => TypeSchema::get()->int(),
+			'title' => TypeSchema::get()->string(),
+			'content' => TypeSchema::get()->string(),
+			'category' => TypeSchema::get()->optional(TypeSchema::get()->string()),
+			'published' => TypeSchema::get()->optional(TypeSchema::get()->bool()),
+		]);
+
+		$this->expectInvalidRequest([
+			'id' => 'This value is not valid.',
 		]);
 		$this->mapper->mapToArray($type, $context);
 	}

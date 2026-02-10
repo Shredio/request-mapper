@@ -12,6 +12,7 @@ use Shredio\RequestMapper\Symfony\SymfonyRequestContextFactory;
 use Symfony\Component\HttpFoundation\Request;
 use Tests\Fixtures\ArticleInput;
 use Tests\Fixtures\EnumInput;
+use Tests\Fixtures\IntBackedEnumInput;
 use Tests\Fixtures\SimpleArticleInput;
 use Tests\Fixtures\SimpleBodyInput;
 use Tests\Fixtures\SimpleInput;
@@ -339,6 +340,150 @@ final class RequestMapperTest extends RequestMapperTestCase
 		$this->expectInvalidPresetValues([
 			'title' => 'Invalid type int with value 42, expected string.',
 			'content' => 'Invalid type int with value 42, expected string.',
+		]);
+		$this->mapper->mapToObject(ArticleInput::class, $context);
+	}
+
+	public function testMapIntBackedEnumFromQuery(): void
+	{
+		$request = $this->createRequest(query: ['status' => '1']);
+		$context = SymfonyRequestContextFactory::createFrom($request);
+
+		$result = $this->mapper->mapToObject(IntBackedEnumInput::class, $context);
+
+		self::assertInstanceOf(IntBackedEnumInput::class, $result);
+		self::assertSame(1, $result->status->value);
+	}
+
+	public function testRejectFloatStringForIntParameter(): void
+	{
+		$request = $this->createRequest(query: ['name' => 'John', 'age' => '30.5']);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration([
+			'age' => new RequestParam(),
+		]));
+
+		$this->expectInvalidRequest([
+			'age' => 'This value is not valid.',
+		]);
+		$this->mapper->mapToObject(SimpleInput::class, $context);
+	}
+
+	public function testMapBooleanFalseFromBody(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'id' => 1,
+			'title' => 'Test',
+			'content' => 'Text',
+			'published' => false,
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request);
+
+		$result = $this->mapper->mapToObject(ArticleInput::class, $context);
+
+		self::assertFalse($result->published);
+	}
+
+	public function testMapFromAttributeLocation(): void
+	{
+		$request = $this->createRequest(query: ['filter' => 'active']);
+		$request->attributes->set('userId', '100');
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration([
+			'id' => new RequestParam(sourceKey: 'userId', location: RequestLocation::Attribute),
+		]));
+
+		$result = $this->mapper->mapToObject(UserInput::class, $context);
+
+		self::assertSame(100, $result->id);
+		self::assertSame('active', $result->filter);
+	}
+
+	public function testMapFromServerLocation(): void
+	{
+		$request = $this->createRequest(query: ['name' => 'John']);
+		$request->server->set('CUSTOM_PORT', '8080');
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration([
+			'age' => new RequestParam(sourceKey: 'CUSTOM_PORT', location: RequestLocation::Server),
+		]));
+
+		$result = $this->mapper->mapToObject(SimpleInput::class, $context);
+
+		self::assertSame('John', $result->name);
+		self::assertSame(8080, $result->age);
+	}
+
+	public function testMapHeaderWithCaseInsensitiveKey(): void
+	{
+		$request = $this->createRequest(query: ['filter' => 'active'], path: ['userId' => '100'], headers: ['x-api-key' => 'secret123']);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration([
+			'id' => new RequestParam(sourceKey: 'userId', location: RequestLocation::Route),
+			'apiKey' => new RequestParam(sourceKey: 'X-API-Key', location: RequestLocation::Header),
+		]));
+
+		$result = $this->mapper->mapToObject(UserInput::class, $context);
+
+		self::assertSame('secret123', $result->apiKey);
+	}
+
+	public function testMapWithLocationAsParamConfig(): void
+	{
+		$request = $this->createRequest(path: ['id' => '123']);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration([
+			'id' => RequestLocation::Route,
+		]));
+
+		$result = $this->mapper->mapToObject(SimpleArticleInput::class, $context);
+
+		self::assertSame(123, $result->id);
+	}
+
+	public function testMapWithDefaultBodyLocationForPostRequest(): void
+	{
+		$request = $this->createRequest('POST', query: ['name' => 'FromQuery'], body: ['name' => 'FromBody', 'age' => 30]);
+		$context = SymfonyRequestContextFactory::createFrom($request);
+
+		$result = $this->mapper->mapToObject(SimpleInput::class, $context);
+
+		self::assertSame('FromBody', $result->name);
+	}
+
+	public function testPresetValueForOptionalField(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'id' => 1,
+			'title' => 'Test Article',
+			'content' => 'Text',
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration(presetValues: ['category' => 'preset']));
+
+		$input = $this->mapper->mapToObject(ArticleInput::class, $context);
+
+		self::assertSame('preset', $input->category);
+	}
+
+	public function testRejectMissingMultipleRequiredFields(): void
+	{
+		$request = $this->createRequest('POST', body: []);
+		$context = SymfonyRequestContextFactory::createFrom($request);
+
+		$this->expectInvalidRequest([
+			'id' => 'This field is missing.',
+			'title' => 'This field is missing.',
+			'content' => 'This field is missing.',
+		]);
+		$this->mapper->mapToObject(ArticleInput::class, $context);
+	}
+
+	public function testRejectInvalidTypeInBody(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'id' => 'not-a-number',
+			'title' => 'Test',
+			'content' => 'Text',
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request);
+
+		$this->expectInvalidRequest([
+			'id' => 'This value is not valid.',
 		]);
 		$this->mapper->mapToObject(ArticleInput::class, $context);
 	}
