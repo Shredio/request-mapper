@@ -13,7 +13,7 @@ use Tests\RequestMapperTestCase;
 final class RequestMapperArrayTest extends RequestMapperTestCase
 {
 
-	public function testMapFromPathParameters(): void
+	public function testMapRouteParameterToInt(): void
 	{
 		$request = $this->createRequest(path: ['id' => '123']);
 		$context = $this->createContextForSimpleArticleInput($request);
@@ -31,7 +31,7 @@ final class RequestMapperArrayTest extends RequestMapperTestCase
 		self::assertArrayNotHasKey('published', $result);
 	}
 
-	public function testMapFromQueryParameters(): void
+	public function testMapQueryParametersOverrideDefaults(): void
 	{
 		$request = $this->createRequest(query: ['category' => 'tech', 'published' => '0'], path: ['id' => '456']);
 		$context = $this->createContextForSimpleArticleInput($request);
@@ -49,7 +49,7 @@ final class RequestMapperArrayTest extends RequestMapperTestCase
 		self::assertFalse($result['published']);
 	}
 
-	public function testEnumType(): void
+	public function testMapStringBackedEnumFromQuery(): void
 	{
 		$request = $this->createRequest(query: ['status' => 'draft']);
 		$context = SymfonyRequestContextFactory::createFrom($request);
@@ -63,7 +63,7 @@ final class RequestMapperArrayTest extends RequestMapperTestCase
 		self::assertSame('draft', $result['status']->value);
 	}
 
-	public function testInvalidEnumType(): void
+	public function testRejectInvalidEnumValue(): void
 	{
 		$request = $this->createRequest(query: ['status' => 'drafts']);
 		$context = SymfonyRequestContextFactory::createFrom($request);
@@ -78,7 +78,7 @@ final class RequestMapperArrayTest extends RequestMapperTestCase
 		$this->mapper->mapToArray($type, $context);
 	}
 
-	public function testMapFromBodyParameters(): void
+	public function testMapBodyParametersWithExplicitBodyLocation(): void
 	{
 		$request = $this->createRequest('POST', body: [
 			'title' => 'Test Article',
@@ -97,7 +97,7 @@ final class RequestMapperArrayTest extends RequestMapperTestCase
 		self::assertSame('This is test content', $result['content']);
 	}
 
-	public function testMapWithCustomParameterNames(): void
+	public function testMapWithSourceKeyMapping(): void
 	{
 		$request = $this->createRequest(query: ['filter' => 'active'], path: ['userId' => '100'], headers: ['X-API-Key' => 'secret123']);
 		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration([
@@ -118,7 +118,7 @@ final class RequestMapperArrayTest extends RequestMapperTestCase
 		self::assertSame('secret123', $result['apiKey']);
 	}
 
-	public function testExceptionExtraOneKey(): void
+	public function testRejectSingleUnexpectedField(): void
 	{
 		$request = $this->createRequest('POST', body: [
 			'id' => 1,
@@ -138,7 +138,7 @@ final class RequestMapperArrayTest extends RequestMapperTestCase
 		$this->mapper->mapToArray($type, $context);
 	}
 
-	public function testExceptionExtraTwoKeys(): void
+	public function testRejectTwoUnexpectedFields(): void
 	{
 		$request = $this->createRequest('POST', body: [
 			'id' => 1,
@@ -160,7 +160,7 @@ final class RequestMapperArrayTest extends RequestMapperTestCase
 		$this->mapper->mapToArray($type, $context);
 	}
 
-	public function testExceptionExtraThreeKeys(): void
+	public function testRejectThreeUnexpectedFields(): void
 	{
 		$request = $this->createRequest('POST', body: [
 			'id' => 1,
@@ -184,7 +184,7 @@ final class RequestMapperArrayTest extends RequestMapperTestCase
 		$this->mapper->mapToArray($type, $context);
 	}
 
-	public function testExceptionMissingRequiredKeyWithCustomKey(): void
+	public function testRejectMissingRequiredFieldWithSourceKey(): void
 	{
 		$request = $this->createRequest();
 		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration([
@@ -203,7 +203,7 @@ final class RequestMapperArrayTest extends RequestMapperTestCase
 		$this->mapper->mapToArray($type, $context);
 	}
 
-	public function testMapWithoutLocationAttributesForGet(): void
+	public function testMapQueryParametersForGetRequest(): void
 	{
 		$request = $this->createRequest(query: ['name' => 'John', 'age' => '30']);
 		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration([
@@ -221,7 +221,7 @@ final class RequestMapperArrayTest extends RequestMapperTestCase
 		self::assertSame(30, $result['age']);
 	}
 
-	public function testMapWithoutLocationAttributesForPost(): void
+	public function testMapBodyParametersForPostRequest(): void
 	{
 		$request = $this->createRequest('POST', body: ['name' => 'John', 'age' => 30]);
 		$context = SymfonyRequestContextFactory::createFrom($request);
@@ -237,7 +237,7 @@ final class RequestMapperArrayTest extends RequestMapperTestCase
 		self::assertSame(30, $result['age']);
 	}
 
-	public function testMapWithMissingRequiredParameter(): void
+	public function testRejectMissingRequiredField(): void
 	{
 		$request = $this->createRequest('POST', body: []);
 		$context = SymfonyRequestContextFactory::createFrom($request);
@@ -256,7 +256,7 @@ final class RequestMapperArrayTest extends RequestMapperTestCase
 		$this->mapper->mapToArray($type, $context);
 	}
 
-	public function testSinglePresetValue(): void
+	public function testMapWithSinglePresetValue(): void
 	{
 		$request = $this->createRequest('POST', body: [
 			'id' => 1,
@@ -277,7 +277,7 @@ final class RequestMapperArrayTest extends RequestMapperTestCase
 		self::assertSame('text', $result['content']);
 	}
 
-	public function testOverrideValue(): void
+	public function testRejectUserProvidedValueForPresetField(): void
 	{
 		$request = $this->createRequest('POST', body: [
 			'id' => 1,
@@ -300,7 +300,7 @@ final class RequestMapperArrayTest extends RequestMapperTestCase
 		$this->mapper->mapToArray($type, $context);
 	}
 
-	public function testMultiplePresetValues(): void
+	public function testMapWithMultiplePresetValues(): void
 	{
 		$request = $this->createRequest('POST', body: [
 			'id' => 1,
@@ -321,7 +321,7 @@ final class RequestMapperArrayTest extends RequestMapperTestCase
 		self::assertSame('Title text', $result['title']);
 	}
 
-	public function testWithInvalidPresetValue(): void
+	public function testRejectPresetValueWithInvalidType(): void
 	{
 		$request = $this->createRequest('POST', body: [
 			'id' => 1,
@@ -343,7 +343,7 @@ final class RequestMapperArrayTest extends RequestMapperTestCase
 		$this->mapper->mapToArray($type, $context);
 	}
 
-	public function testWithMultipleInvalidPresetValues(): void
+	public function testRejectMultiplePresetValuesWithInvalidType(): void
 	{
 		$request = $this->createRequest('POST', body: [
 			'id' => 1,
