@@ -18,8 +18,14 @@ final readonly class DefaultRequestContext implements RequestContext
 		private array $paramConfig = [],
 		private RequestLocation $location = RequestLocation::Query,
 		private array $presetValues = [],
+		private bool $allowExtraParameters = false,
 	)
 	{
+	}
+
+	public function isExtraParameterAllowed(): bool
+	{
+		return $this->allowExtraParameters;
 	}
 
 	/**

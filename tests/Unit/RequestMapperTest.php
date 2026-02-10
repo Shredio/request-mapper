@@ -489,6 +489,95 @@ final class RequestMapperTest extends RequestMapperTestCase
 		$this->mapper->mapToObject(ArticleInput::class, $context);
 	}
 
+	public function testAllowExtraParametersIgnoresUnexpectedFields(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'id' => 1,
+			'extraOne' => 'value1',
+			'extraTwo' => 'value2',
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration(allowExtraParameters: true));
+
+		$result = $this->mapper->mapToObject(UserInput::class, $context);
+
+		self::assertInstanceOf(UserInput::class, $result);
+		self::assertSame(1, $result->id);
+	}
+
+	public function testAllowExtraParametersIgnoresUnexpectedFieldsInQuery(): void
+	{
+		$request = $this->createRequest(query: ['name' => 'John', 'age' => '30', 'extra' => 'value']);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration(allowExtraParameters: true));
+
+		$result = $this->mapper->mapToObject(SimpleInput::class, $context);
+
+		self::assertInstanceOf(SimpleInput::class, $result);
+		self::assertSame('John', $result->name);
+		self::assertSame(30, $result->age);
+	}
+
+	public function testAllowExtraParametersStillRejectsInvalidTypes(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'id' => 'not-a-number',
+			'title' => 'Test',
+			'content' => 'Text',
+			'extra' => 'value',
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration(allowExtraParameters: true));
+
+		$this->expectInvalidRequest([
+			'id' => 'This value is not valid.',
+		]);
+		$this->mapper->mapToObject(ArticleInput::class, $context);
+	}
+
+	public function testAllowExtraParametersStillRejectsMissingRequiredFields(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'extra' => 'value',
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration(allowExtraParameters: true));
+
+		$this->expectInvalidRequest([
+			'id' => 'This field is missing.',
+		]);
+		$this->mapper->mapToObject(UserInput::class, $context);
+	}
+
+	public function testAllowExtraParametersWithPresetValuesDoesNotRejectUserProvidedPresetField(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'id' => 1,
+			'title' => 'Test Article',
+			'content' => 'user value',
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration(
+			presetValues: ['content' => 'text'],
+			allowExtraParameters: true,
+		));
+
+		$input = $this->mapper->mapToObject(ArticleInput::class, $context);
+
+		self::assertSame(1, $input->id);
+		self::assertSame('Test Article', $input->title);
+		self::assertSame('user value', $input->content);
+	}
+
+	public function testDisallowExtraParametersRejectsUnexpectedFields(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'id' => 1,
+			'extraOne' => 'value1',
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration(allowExtraParameters: false));
+
+		$this->expectInvalidRequest([
+			'extraOne' => 'This field was not expected.',
+		]);
+		$this->mapper->mapToObject(UserInput::class, $context);
+	}
+
 	public function testMapFromAllLocationsWithSourceKeys(): void
 	{
 		$request = Request::create(

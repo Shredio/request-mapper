@@ -580,6 +580,132 @@ final class RequestMapperArrayTest extends RequestMapperTestCase
 		$this->mapper->mapToArray($type, $context);
 	}
 
+	public function testAllowExtraParametersIgnoresUnexpectedFields(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'id' => 1,
+			'extraOne' => 'value1',
+			'extraTwo' => 'value2',
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration(allowExtraParameters: true));
+
+		$type = TypeSchema::get()->arrayShape([
+			'id' => TypeSchema::get()->int(),
+			'filter' => TypeSchema::get()->optional(TypeSchema::get()->string()),
+			'apiKey' => TypeSchema::get()->optional(TypeSchema::get()->string()),
+		]);
+
+		$result = $this->mapper->mapToArray($type, $context);
+
+		self::assertSame(1, $result['id']);
+	}
+
+	public function testAllowExtraParametersIgnoresUnexpectedFieldsInQuery(): void
+	{
+		$request = $this->createRequest(query: ['name' => 'John', 'age' => '30', 'extra' => 'value']);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration(allowExtraParameters: true));
+
+		$type = TypeSchema::get()->arrayShape([
+			'name' => TypeSchema::get()->string(),
+			'age' => TypeSchema::get()->optional(TypeSchema::get()->int()),
+		]);
+
+		$result = $this->mapper->mapToArray($type, $context);
+
+		self::assertSame('John', $result['name']);
+		self::assertSame(30, $result['age']);
+	}
+
+	public function testAllowExtraParametersStillRejectsInvalidTypes(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'id' => 'not-a-number',
+			'title' => 'Test',
+			'content' => 'Text',
+			'extra' => 'value',
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration(allowExtraParameters: true));
+
+		$type = TypeSchema::get()->arrayShape([
+			'id' => TypeSchema::get()->int(),
+			'title' => TypeSchema::get()->string(),
+			'content' => TypeSchema::get()->string(),
+			'category' => TypeSchema::get()->optional(TypeSchema::get()->string()),
+			'published' => TypeSchema::get()->optional(TypeSchema::get()->bool()),
+		]);
+
+		$this->expectInvalidRequest([
+			'id' => 'This value is not valid.',
+		]);
+		$this->mapper->mapToArray($type, $context);
+	}
+
+	public function testAllowExtraParametersStillRejectsMissingRequiredFields(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'extra' => 'value',
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration(allowExtraParameters: true));
+
+		$type = TypeSchema::get()->arrayShape([
+			'id' => TypeSchema::get()->int(),
+			'filter' => TypeSchema::get()->optional(TypeSchema::get()->string()),
+			'apiKey' => TypeSchema::get()->optional(TypeSchema::get()->string()),
+		]);
+
+		$this->expectInvalidRequest([
+			'id' => 'This field is missing.',
+		]);
+		$this->mapper->mapToArray($type, $context);
+	}
+
+	public function testAllowExtraParametersWithPresetValuesDoesNotRejectUserProvidedPresetField(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'id' => 1,
+			'title' => 'Test Article',
+			'content' => 'user value',
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration(
+			presetValues: ['content' => 'text'],
+			allowExtraParameters: true,
+		));
+
+		$type = TypeSchema::get()->arrayShape([
+			'id' => TypeSchema::get()->int(),
+			'title' => TypeSchema::get()->string(),
+			'content' => TypeSchema::get()->string(),
+			'category' => TypeSchema::get()->optional(TypeSchema::get()->string()),
+			'published' => TypeSchema::get()->optional(TypeSchema::get()->bool()),
+		]);
+
+		$result = $this->mapper->mapToArray($type, $context);
+
+		self::assertSame(1, $result['id']);
+		self::assertSame('Test Article', $result['title']);
+		self::assertSame('user value', $result['content']);
+	}
+
+	public function testDisallowExtraParametersRejectsUnexpectedFields(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'id' => 1,
+			'extraOne' => 'value1',
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration(allowExtraParameters: false));
+
+		$type = TypeSchema::get()->arrayShape([
+			'id' => TypeSchema::get()->int(),
+			'filter' => TypeSchema::get()->optional(TypeSchema::get()->string()),
+			'apiKey' => TypeSchema::get()->optional(TypeSchema::get()->string()),
+		]);
+
+		$this->expectInvalidRequest([
+			'extraOne' => 'This field was not expected.',
+		]);
+		$this->mapper->mapToArray($type, $context);
+	}
+
 	public function testMapFromAllLocationsWithSourceKeys(): void
 	{
 		$request = Request::create(

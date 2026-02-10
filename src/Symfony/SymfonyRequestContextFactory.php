@@ -42,6 +42,7 @@ final readonly class SymfonyRequestContextFactory implements RequestContextFacto
 			$configuration->parameters ?? [],
 			$configuration->location ?? self::getDefaultRequestLocation($currentRequest),
 			$configuration->presetValues ?? [],
+			$configuration->allowExtraParameters ?? false,
 		);
 	}
 

@@ -185,6 +185,7 @@ final readonly class RequestParameterMapper
 		$typeConfig = new TypeConfig(
 			conversionStrategy: $defaultConversionStrategy,
 			hierarchyConfig: TypeHierarchyConfig::fromArray($hierarchyConfigs),
+			defaultExtraKeysBehavior: $context->isExtraParameterAllowed() ? ExtraKeysBehavior::Ignore : ExtraKeysBehavior::Reject,
 		);
 
 		return [$requestValues, $typeConfig, $keysToReindex];

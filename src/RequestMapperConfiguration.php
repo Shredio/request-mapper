@@ -16,6 +16,7 @@ final readonly class RequestMapperConfiguration
 		public array $parameters = [],
 		public ?RequestLocation $location = null,
 		public array $presetValues = [],
+		public bool $allowExtraParameters = false,
 	)
 	{
 	}

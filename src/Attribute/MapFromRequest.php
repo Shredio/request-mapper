@@ -19,6 +19,7 @@ final readonly class MapFromRequest
 	public function __construct(
 		public array $configuration = [],
 		public ?RequestLocation $location = null,
+		public bool $allowExtraParameters = false,
 	)
 	{
 	}
@@ -28,6 +29,7 @@ final readonly class MapFromRequest
 		return new RequestMapperConfiguration(
 			parameters: $this->configuration,
 			location: $this->location,
+			allowExtraParameters: $this->allowExtraParameters,
 		);
 	}
 

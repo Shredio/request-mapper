@@ -7,6 +7,8 @@ use Shredio\RequestMapper\Attribute\RequestParam;
 interface RequestContext
 {
 
+	public function isExtraParameterAllowed(): bool;
+
 	/**
 	 * @return array<non-empty-string, mixed>
 	 */
