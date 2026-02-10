@@ -9,6 +9,7 @@ use Shredio\RequestMapper\Attribute\RequestParam;
 use Shredio\RequestMapper\Attribute\StringBodyFromRequest;
 use Shredio\RequestMapper\Request\Exception\InvalidRequestException;
 use Shredio\RequestMapper\RequestParameterMapper;
+use Shredio\TypeSchema\Enum\ExtraKeysBehavior;
 use Shredio\TypeSchema\Exception\UnsupportedTypeException;
 use Shredio\TypeSchema\Helper\TypeSchemaHelper;
 use Shredio\TypeSchema\TypeSchema;
@@ -141,7 +142,7 @@ final readonly class RequestMapperArgumentResolver implements EventSubscriberInt
 
 		$values = $this->requestMapper->mapToArray($ts->arrayShape([
 			$sourceKey => $type,
-		]), $context);
+		], ExtraKeysBehavior::Ignore), $context);
 
 		if (!array_key_exists($sourceKey, $values)) {
 			if ($isOptional) {
