@@ -545,7 +545,7 @@ final class RequestMapperTest extends RequestMapperTestCase
 		$this->mapper->mapToObject(UserInput::class, $context);
 	}
 
-	public function testAllowExtraParametersWithPresetValuesDoesNotRejectUserProvidedPresetField(): void
+	public function testAllowExtraParametersWithPresetValuesOverridesUserProvidedPresetField(): void
 	{
 		$request = $this->createRequest('POST', body: [
 			'id' => 1,
@@ -561,7 +561,42 @@ final class RequestMapperTest extends RequestMapperTestCase
 
 		self::assertSame(1, $input->id);
 		self::assertSame('Test Article', $input->title);
-		self::assertSame('user value', $input->content);
+		self::assertSame('text', $input->content);
+	}
+
+	public function testAllowExtraParametersWithPresetValuesMergesPresetValues(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'id' => 1,
+			'title' => 'Test Article',
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration(
+			presetValues: ['content' => 'preset text'],
+			allowExtraParameters: true,
+		));
+
+		$input = $this->mapper->mapToObject(ArticleInput::class, $context);
+
+		self::assertSame(1, $input->id);
+		self::assertSame('Test Article', $input->title);
+		self::assertSame('preset text', $input->content);
+	}
+
+	public function testAllowExtraParametersWithMultiplePresetValuesMergesAll(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'id' => 1,
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration(
+			presetValues: ['title' => 'Preset Title', 'content' => 'preset text'],
+			allowExtraParameters: true,
+		));
+
+		$input = $this->mapper->mapToObject(ArticleInput::class, $context);
+
+		self::assertSame(1, $input->id);
+		self::assertSame('Preset Title', $input->title);
+		self::assertSame('preset text', $input->content);
 	}
 
 	public function testDisallowExtraParametersRejectsUnexpectedFields(): void

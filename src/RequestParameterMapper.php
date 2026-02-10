@@ -318,7 +318,7 @@ final readonly class RequestParameterMapper
 			$typeConfig->defaultExtraKeysBehavior === ExtraKeysBehavior::Accept ||
 			$typeConfig->defaultExtraKeysBehavior === ExtraKeysBehavior::Ignore
 		) {
-			return [$requestValues, null];
+			return [array_merge($requestValues, $presetValues), null];
 		}
 
 		$extraKeys = [];

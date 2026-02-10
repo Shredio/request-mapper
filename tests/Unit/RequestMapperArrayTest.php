@@ -659,7 +659,7 @@ final class RequestMapperArrayTest extends RequestMapperTestCase
 		$this->mapper->mapToArray($type, $context);
 	}
 
-	public function testAllowExtraParametersWithPresetValuesDoesNotRejectUserProvidedPresetField(): void
+	public function testAllowExtraParametersWithPresetValuesOverridesUserProvidedPresetField(): void
 	{
 		$request = $this->createRequest('POST', body: [
 			'id' => 1,
@@ -683,7 +683,58 @@ final class RequestMapperArrayTest extends RequestMapperTestCase
 
 		self::assertSame(1, $result['id']);
 		self::assertSame('Test Article', $result['title']);
-		self::assertSame('user value', $result['content']);
+		self::assertSame('text', $result['content']);
+	}
+
+	public function testAllowExtraParametersWithPresetValuesMergesPresetValues(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'id' => 1,
+			'title' => 'Test Article',
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration(
+			presetValues: ['content' => 'preset text'],
+			allowExtraParameters: true,
+		));
+
+		$type = TypeSchema::get()->arrayShape([
+			'id' => TypeSchema::get()->int(),
+			'title' => TypeSchema::get()->string(),
+			'content' => TypeSchema::get()->string(),
+			'category' => TypeSchema::get()->optional(TypeSchema::get()->string()),
+			'published' => TypeSchema::get()->optional(TypeSchema::get()->bool()),
+		]);
+
+		$result = $this->mapper->mapToArray($type, $context);
+
+		self::assertSame(1, $result['id']);
+		self::assertSame('Test Article', $result['title']);
+		self::assertSame('preset text', $result['content']);
+	}
+
+	public function testAllowExtraParametersWithMultiplePresetValuesMergesAll(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'id' => 1,
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration(
+			presetValues: ['title' => 'Preset Title', 'content' => 'preset text'],
+			allowExtraParameters: true,
+		));
+
+		$type = TypeSchema::get()->arrayShape([
+			'id' => TypeSchema::get()->int(),
+			'title' => TypeSchema::get()->string(),
+			'content' => TypeSchema::get()->string(),
+			'category' => TypeSchema::get()->optional(TypeSchema::get()->string()),
+			'published' => TypeSchema::get()->optional(TypeSchema::get()->bool()),
+		]);
+
+		$result = $this->mapper->mapToArray($type, $context);
+
+		self::assertSame(1, $result['id']);
+		self::assertSame('Preset Title', $result['title']);
+		self::assertSame('preset text', $result['content']);
 	}
 
 	public function testDisallowExtraParametersRejectsUnexpectedFields(): void
