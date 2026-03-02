@@ -10,6 +10,7 @@ use Shredio\RequestMapper\Request\RequestLocation;
 use Shredio\RequestMapper\RequestMapperConfiguration;
 use Shredio\RequestMapper\Symfony\SymfonyRequestContextFactory;
 use Symfony\Component\HttpFoundation\Request;
+use Tests\Fixtures\ArrayInput;
 use Tests\Fixtures\ArticleInput;
 use Tests\Fixtures\ComplexInput;
 use Tests\Fixtures\EnumInput;
@@ -611,6 +612,41 @@ final class RequestMapperTest extends RequestMapperTestCase
 			'extraOne' => 'This field was not expected.',
 		]);
 		$this->mapper->mapToObject(UserInput::class, $context);
+	}
+
+	public function testMapArrayValueInQueryParameter(): void
+	{
+		$request = $this->createRequest(query: ['names' => ['John', 'Jane']]);
+		$context = SymfonyRequestContextFactory::createFrom($request);
+
+		$result = $this->mapper->mapToObject(ArrayInput::class, $context);
+
+		self::assertInstanceOf(ArrayInput::class, $result);
+		self::assertSame(['John', 'Jane'], $result->names);
+	}
+
+	public function testMapScalarValueInQueryForArrayParameter(): void
+	{
+		$request = $this->createRequest(query: ['names' => 'John']);
+		$context = SymfonyRequestContextFactory::createFrom($request);
+
+		$result = $this->mapper->mapToObject(ArrayInput::class, $context);
+
+		self::assertInstanceOf(ArrayInput::class, $result);
+		self::assertSame(['John'], $result->names);
+	}
+
+	public function testRejectArrayValueInQueryForScalarParameter(): void
+	{
+		$request = $this->createRequest(query: ['name' => ['John', 'Jane'], 'age' => '30']);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration([
+			'age' => new RequestParam(),
+		]));
+
+		$this->expectInvalidRequest([
+			'name' => 'This value is not valid.',
+		]);
+		$this->mapper->mapToObject(SimpleInput::class, $context);
 	}
 
 	public function testMapFromAllLocationsWithSourceKeys(): void

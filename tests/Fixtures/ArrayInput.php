@@ -2,12 +2,14 @@
 
 namespace Tests\Fixtures;
 
-final readonly class SimpleInput
+final readonly class ArrayInput
 {
 
+	/**
+	 * @param list<non-empty-string> $names
+	 */
 	public function __construct(
-		public string $name,
-		public int $age = 25,
+		public array $names,
 	)
 	{
 	}

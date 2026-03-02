@@ -757,6 +757,52 @@ final class RequestMapperArrayTest extends RequestMapperTestCase
 		$this->mapper->mapToArray($type, $context);
 	}
 
+	public function testMapArrayValueInQueryParameter(): void
+	{
+		$request = $this->createRequest(query: ['names' => ['John', 'Jane']]);
+		$context = SymfonyRequestContextFactory::createFrom($request);
+
+		$type = TypeSchema::get()->arrayShape([
+			'names' => TypeSchema::get()->list(TypeSchema::get()->string()),
+		]);
+
+		$result = $this->mapper->mapToArray($type, $context);
+
+		self::assertSame(['John', 'Jane'], $result['names']);
+	}
+
+	public function testMapScalarValueInQueryForArrayParameter(): void
+	{
+		$request = $this->createRequest(query: ['names' => 'John']);
+		$context = SymfonyRequestContextFactory::createFrom($request);
+
+		$type = TypeSchema::get()->arrayShape([
+			'names' => TypeSchema::get()->list(TypeSchema::get()->string()),
+		]);
+
+		$result = $this->mapper->mapToArray($type, $context);
+
+		self::assertSame(['John'], $result['names']);
+	}
+
+	public function testRejectArrayValueInQueryForScalarParameter(): void
+	{
+		$request = $this->createRequest(query: ['name' => ['John', 'Jane'], 'age' => '30']);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration([
+			'age' => new RequestParam(),
+		]));
+
+		$type = TypeSchema::get()->arrayShape([
+			'name' => TypeSchema::get()->string(),
+			'age' => TypeSchema::get()->optional(TypeSchema::get()->int()),
+		]);
+
+		$this->expectInvalidRequest([
+			'name' => 'This value is not valid.',
+		]);
+		$this->mapper->mapToArray($type, $context);
+	}
+
 	public function testMapFromAllLocationsWithSourceKeys(): void
 	{
 		$request = Request::create(
