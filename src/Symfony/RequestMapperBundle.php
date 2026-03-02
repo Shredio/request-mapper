@@ -28,7 +28,7 @@ final class RequestMapperBundle extends AbstractBundle
 		$services->alias(RequestContextFactory::class, SymfonyRequestContextFactory::class);
 
 		$services->set('shredio.request_mapper', RequestParameterMapper::class)
-			->args([service(TypeSchemaProcessor::class)]);
+			->args([service(TypeSchemaProcessor::class), null, $builder->getParameter('kernel.debug')]);
 
 		$services->set(DefaultRequestMapper::class)
 			->args([

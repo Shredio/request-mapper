@@ -35,6 +35,7 @@ final readonly class RequestParameterMapper
 	public function __construct(
 		private TypeSchemaProcessor $typeSchemaProcessor,
 		?ErrorReportConfig $errorReportConfig = null,
+		private bool $debugMode = false,
 	)
 	{
 		$this->errorReportConfig = $errorReportConfig ?? new ErrorReportConfig(
@@ -235,7 +236,7 @@ final readonly class RequestParameterMapper
 				'messages' => [],
 			];
 
-			$grouped[$key]['messages'][] = $report->message;
+			$grouped[$key]['messages'][] = $this->debugMode ? $report->messageForDeveloper : $report->message;
 		}
 
 		$violations = [];
