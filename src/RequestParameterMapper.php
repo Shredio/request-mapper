@@ -7,6 +7,7 @@ use Shredio\Problem\Violation\GlobalViolation;
 use Shredio\Problem\Violation\Violation;
 use Shredio\RequestMapper\Attribute\RequestParam;
 use Shredio\RequestMapper\Conversion\ConversionType;
+use Shredio\RequestMapper\Conversion\Discriminator;
 use Shredio\RequestMapper\Exception\LogicException;
 use Shredio\RequestMapper\Request\Exception\InvalidRequestException;
 use Shredio\RequestMapper\Request\RequestContext;
@@ -64,7 +65,12 @@ final readonly class RequestParameterMapper
 	 */
 	public function mapToObject(string $target, RequestContext $context): object
 	{
-		return $this->mapToType(TypeSchema::get()->mapper($target), $context, $target);
+		$discriminator = $context->getDiscriminator();
+		if ($discriminator !== null) {
+			$target = $this->resolveDiscriminator($target, $discriminator, $context);
+		}
+
+		return $this->mapToType(TypeSchema::get()->mapper($target), $context, $target); // @phpstan-ignore return.type (discriminator may resolve a different class)
 	}
 
 	/**
@@ -156,6 +162,16 @@ final readonly class RequestParameterMapper
 		$defaultConversionStrategy = $this->getConversionStrategyForTypeSchema($defaultConversionType);
 
 		$requestValues = $context->getRequestValues();
+
+		$discriminator = $context->getDiscriminator();
+		if ($discriminator !== null) {
+			$discriminatorLocation = $discriminator->location ?? $defaultLocation;
+			if ($discriminatorLocation === $defaultLocation) {
+				$normalizedDiscriminatorKey = $context->normalizeKey($discriminator->key, $defaultLocation);
+				unset($requestValues[$normalizedDiscriminatorKey]);
+			}
+		}
+
 		$hierarchyConfigs = [];
 		$keysToReindex = [];
 		foreach ($context->getParamConfigs() as $paramKey => $paramConfig) {
@@ -206,6 +222,43 @@ final readonly class RequestParameterMapper
 			RequestLocation::Body => ConversionType::TypeStrict,
 			default => ConversionType::TypeLenient,
 		};
+	}
+
+	/**
+	 * @param class-string $originalTarget
+	 * @return class-string
+	 *
+	 * @throws InvalidRequestException
+	 */
+	private function resolveDiscriminator(string $originalTarget, Discriminator $discriminator, RequestContext $context): string
+	{
+		$location = $discriminator->location ?? $context->getDefaultRequestLocation();
+		$values = $context->getRequestValuesByLocation($location);
+		$normalizedKey = $context->normalizeKey($discriminator->key, $location);
+
+		if (!array_key_exists($normalizedKey, $values)) {
+			throw new InvalidRequestException($originalTarget, [
+				new FieldViolation([$discriminator->key], ['This field is required.']),
+			]);
+		}
+
+		$discriminatorValue = $values[$normalizedKey];
+
+		if (!is_string($discriminatorValue) && !is_int($discriminatorValue)) {
+			throw new InvalidRequestException($originalTarget, [
+				new FieldViolation([$discriminator->key], ['This value is not valid.']),
+			]);
+		}
+
+		if (!array_key_exists($discriminatorValue, $discriminator->mapping)) {
+			throw new InvalidRequestException($originalTarget, [
+				new FieldViolation([$discriminator->key], [
+					sprintf('The value you selected is not a valid choice.'),
+				]),
+			]);
+		}
+
+		return $discriminator->mapping[$discriminatorValue];
 	}
 
 	/**

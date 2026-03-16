@@ -3,6 +3,7 @@
 namespace Shredio\RequestMapper;
 
 use Shredio\RequestMapper\Attribute\RequestParam;
+use Shredio\RequestMapper\Conversion\Discriminator;
 use Shredio\RequestMapper\Request\RequestLocation;
 
 final readonly class RequestMapperConfiguration
@@ -17,6 +18,7 @@ final readonly class RequestMapperConfiguration
 		public ?RequestLocation $location = null,
 		public array $presetValues = [],
 		public bool $allowExtraParameters = false,
+		public ?Discriminator $discriminator = null,
 	)
 	{
 	}
@@ -30,6 +32,8 @@ final readonly class RequestMapperConfiguration
 			parameters: $this->parameters,
 			location: $this->location,
 			presetValues: $presetValues,
+			allowExtraParameters: $this->allowExtraParameters,
+			discriminator: $this->discriminator,
 		);
 	}
 
@@ -42,6 +46,8 @@ final readonly class RequestMapperConfiguration
 			parameters: $this->parameters,
 			location: $this->location,
 			presetValues: array_merge($this->presetValues, $presetValues),
+			allowExtraParameters: $this->allowExtraParameters,
+			discriminator: $this->discriminator,
 		);
 	}
 
@@ -54,6 +60,8 @@ final readonly class RequestMapperConfiguration
 			parameters: $this->parameters,
 			location: $this->location,
 			presetValues: array_merge($this->presetValues, [$key => $value]),
+			allowExtraParameters: $this->allowExtraParameters,
+			discriminator: $this->discriminator,
 		);
 	}
 

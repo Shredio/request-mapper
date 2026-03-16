@@ -96,10 +96,10 @@ final readonly class RequestMapperArgumentResolver implements EventSubscriberInt
 
 		$context = SymfonyRequestContextFactory::createFrom($request, $attribute->createConfiguration());
 
-		if (class_exists($type) && !enum_exists($type)) {
+		if ((class_exists($type) && !enum_exists($type) || interface_exists($type))) {
 			return $this->requestMapper->mapToObject($type, $context);
 		} else {
-			throw new LogicException(sprintf('Could not resolve the "$%s" controller argument: type "%s" is not a class.', $argument->getName(), $type));
+			throw new LogicException(sprintf('Could not resolve the "$%s" controller argument: type "%s" is not a class or interface.', $argument->getName(), $type));
 		}
 	}
 

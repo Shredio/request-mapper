@@ -3,6 +3,7 @@
 namespace Shredio\RequestMapper\Attribute;
 
 use Attribute;
+use Shredio\RequestMapper\Conversion\Discriminator;
 use Shredio\RequestMapper\Request\RequestLocation;
 use Shredio\RequestMapper\RequestMapperConfiguration;
 
@@ -20,6 +21,7 @@ final readonly class MapFromRequest
 		public array $configuration = [],
 		public ?RequestLocation $location = null,
 		public bool $allowExtraParameters = false,
+		public ?Discriminator $discriminator = null,
 	)
 	{
 	}
@@ -30,6 +32,7 @@ final readonly class MapFromRequest
 			parameters: $this->configuration,
 			location: $this->location,
 			allowExtraParameters: $this->allowExtraParameters,
+			discriminator: $this->discriminator,
 		);
 	}
 

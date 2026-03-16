@@ -3,6 +3,7 @@
 namespace Shredio\RequestMapper\Request;
 
 use Shredio\RequestMapper\Attribute\RequestParam;
+use Shredio\RequestMapper\Conversion\Discriminator;
 
 final readonly class DefaultRequestContext implements RequestContext
 {
@@ -19,6 +20,7 @@ final readonly class DefaultRequestContext implements RequestContext
 		private RequestLocation $location = RequestLocation::Query,
 		private array $presetValues = [],
 		private bool $allowExtraParameters = false,
+		private ?Discriminator $discriminator = null,
 	)
 	{
 	}
@@ -67,6 +69,11 @@ final readonly class DefaultRequestContext implements RequestContext
 	public function filterValue(mixed $value, RequestLocation $location): mixed
 	{
 		return $this->valueNormalizer->normalize($value, $location);
+	}
+
+	public function getDiscriminator(): ?Discriminator
+	{
+		return $this->discriminator;
 	}
 
 }

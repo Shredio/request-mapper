@@ -3,16 +3,16 @@
 namespace Tests\Unit;
 
 use Shredio\RequestMapper\Attribute\RequestParam;
-use Shredio\RequestMapper\Exception\LogicException;
-use Shredio\RequestMapper\Request\Exception\InvalidRequestException;
-use Shredio\RequestMapper\Request\RequestContext;
+use Shredio\RequestMapper\Conversion\Discriminator;
 use Shredio\RequestMapper\Request\RequestLocation;
 use Shredio\RequestMapper\RequestMapperConfiguration;
 use Shredio\RequestMapper\Symfony\SymfonyRequestContextFactory;
 use Symfony\Component\HttpFoundation\Request;
 use Tests\Fixtures\ArrayInput;
 use Tests\Fixtures\ArticleInput;
+use Tests\Fixtures\CatInput;
 use Tests\Fixtures\ComplexInput;
+use Tests\Fixtures\DogInput;
 use Tests\Fixtures\EnumInput;
 use Tests\Fixtures\IntBackedEnumInput;
 use Tests\Fixtures\SimpleArticleInput;
@@ -20,7 +20,6 @@ use Tests\Fixtures\SimpleBodyInput;
 use Tests\Fixtures\SimpleInput;
 use Tests\Fixtures\UserInput;
 use Tests\Fixtures\ValueMapperInput;
-use Tests\MapperTestCase;
 use Tests\RequestMapperTestCase;
 
 final class RequestMapperTest extends RequestMapperTestCase
@@ -647,6 +646,158 @@ final class RequestMapperTest extends RequestMapperTestCase
 			'name' => 'This value is not valid.',
 		]);
 		$this->mapper->mapToObject(SimpleInput::class, $context);
+	}
+
+	public function testDiscriminatorResolvesCorrectClassFromBody(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'type' => 'cat',
+			'name' => 'Whiskers',
+			'indoor' => true,
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration(
+			discriminator: new Discriminator('type', [
+				'cat' => CatInput::class,
+				'dog' => DogInput::class,
+			]),
+		));
+
+		$result = $this->mapper->mapToObject(CatInput::class, $context);
+
+		self::assertInstanceOf(CatInput::class, $result);
+		self::assertSame('Whiskers', $result->name);
+		self::assertTrue($result->indoor);
+	}
+
+	public function testDiscriminatorResolvesCorrectClassFromQuery(): void
+	{
+		$request = $this->createRequest(query: ['type' => 'dog', 'name' => 'Rex', 'breed' => 'labrador']);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration(
+			discriminator: new Discriminator('type', [
+				'cat' => CatInput::class,
+				'dog' => DogInput::class,
+			]),
+		));
+
+		$result = $this->mapper->mapToObject(DogInput::class, $context);
+
+		self::assertInstanceOf(DogInput::class, $result);
+		self::assertSame('Rex', $result->name);
+		self::assertSame('labrador', $result->breed);
+	}
+
+	public function testDiscriminatorWithExplicitLocation(): void
+	{
+		$request = $this->createRequest('POST', query: ['type' => 'cat'], body: [
+			'name' => 'Whiskers',
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration(
+			discriminator: new Discriminator('type', [
+				'cat' => CatInput::class,
+				'dog' => DogInput::class,
+			], RequestLocation::Query),
+		));
+
+		$result = $this->mapper->mapToObject(CatInput::class, $context);
+
+		self::assertInstanceOf(CatInput::class, $result);
+		self::assertSame('Whiskers', $result->name);
+	}
+
+	public function testDiscriminatorRejectsMissingKey(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'name' => 'Whiskers',
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration(
+			discriminator: new Discriminator('type', [
+				'cat' => CatInput::class,
+				'dog' => DogInput::class,
+			]),
+		));
+
+		$this->expectInvalidRequest([
+			'type' => 'This field is required.',
+		]);
+		$this->mapper->mapToObject(CatInput::class, $context);
+	}
+
+	public function testDiscriminatorRejectsUnknownValue(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'type' => 'bird',
+			'name' => 'Tweety',
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration(
+			discriminator: new Discriminator('type', [
+				'cat' => CatInput::class,
+				'dog' => DogInput::class,
+			]),
+		));
+
+		$this->expectInvalidRequest([
+			'type' => 'The value you selected is not a valid choice.',
+		]);
+		$this->mapper->mapToObject(CatInput::class, $context);
+	}
+
+	public function testDiscriminatorKeyIsRemovedFromValues(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'type' => 'dog',
+			'name' => 'Rex',
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration(
+			discriminator: new Discriminator('type', [
+				'cat' => CatInput::class,
+				'dog' => DogInput::class,
+			]),
+		));
+
+		$result = $this->mapper->mapToObject(DogInput::class, $context);
+
+		self::assertInstanceOf(DogInput::class, $result);
+		self::assertSame('Rex', $result->name);
+	}
+
+	public function testDiscriminatorWithPresetValues(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'type' => 'cat',
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration(
+			presetValues: ['name' => 'Preset Cat'],
+			discriminator: new Discriminator('type', [
+				'cat' => CatInput::class,
+				'dog' => DogInput::class,
+			]),
+		));
+
+		$result = $this->mapper->mapToObject(CatInput::class, $context);
+
+		self::assertInstanceOf(CatInput::class, $result);
+		self::assertSame('Preset Cat', $result->name);
+	}
+
+	public function testDiscriminatorWithAllowExtraParameters(): void
+	{
+		$request = $this->createRequest('POST', body: [
+			'type' => 'dog',
+			'name' => 'Rex',
+			'extra' => 'value',
+		]);
+		$context = SymfonyRequestContextFactory::createFrom($request, new RequestMapperConfiguration(
+			allowExtraParameters: true,
+			discriminator: new Discriminator('type', [
+				'cat' => CatInput::class,
+				'dog' => DogInput::class,
+			]),
+		));
+
+		$result = $this->mapper->mapToObject(DogInput::class, $context);
+
+		self::assertInstanceOf(DogInput::class, $result);
+		self::assertSame('Rex', $result->name);
 	}
 
 	public function testMapFromAllLocationsWithSourceKeys(): void

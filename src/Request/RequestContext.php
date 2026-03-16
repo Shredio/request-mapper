@@ -3,6 +3,7 @@
 namespace Shredio\RequestMapper\Request;
 
 use Shredio\RequestMapper\Attribute\RequestParam;
+use Shredio\RequestMapper\Conversion\Discriminator;
 
 interface RequestContext
 {
@@ -34,5 +35,7 @@ interface RequestContext
 	public function normalizeKey(string $key, RequestLocation $location): string;
 
 	public function filterValue(mixed $value, RequestLocation $location): mixed;
+
+	public function getDiscriminator(): ?Discriminator;
 
 }
