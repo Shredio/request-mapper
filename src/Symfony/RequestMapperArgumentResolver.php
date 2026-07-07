@@ -8,6 +8,7 @@ use Shredio\RequestMapper\Attribute\MapFromRequest;
 use Shredio\RequestMapper\Attribute\RequestParam;
 use Shredio\RequestMapper\Attribute\StringBodyFromRequest;
 use Shredio\RequestMapper\Request\Exception\InvalidRequestException;
+use Shredio\RequestMapper\Request\Exception\StructuralRequestException;
 use Shredio\RequestMapper\RequestParameterMapper;
 use Shredio\TypeSchema\Enum\ExtraKeysBehavior;
 use Shredio\TypeSchema\Exception\UnsupportedTypeException;
@@ -68,7 +69,7 @@ final readonly class RequestMapperArgumentResolver implements EventSubscriberInt
 		}
 
 		if ($content === '' && !$argument->isNullable()) {
-			throw new InvalidRequestException('body string', [
+			throw new StructuralRequestException('body string', [
 				new GlobalViolation(['Missing HTTP body']),
 			]);
 		}

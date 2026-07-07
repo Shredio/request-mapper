@@ -10,6 +10,8 @@ use Shredio\RequestMapper\Conversion\ConversionType;
 use Shredio\RequestMapper\Conversion\Discriminator;
 use Shredio\RequestMapper\Exception\LogicException;
 use Shredio\RequestMapper\Request\Exception\InvalidRequestException;
+use Shredio\RequestMapper\Request\Exception\StructuralRequestException;
+use Shredio\RequestMapper\Request\Exception\ValidationRequestException;
 use Shredio\RequestMapper\Request\RequestContext;
 use Shredio\RequestMapper\Request\RequestLocation;
 use Shredio\TypeSchema\Config\TypeConfig;
@@ -17,6 +19,7 @@ use Shredio\TypeSchema\Config\TypeHierarchyConfig;
 use Shredio\TypeSchema\Conversion\ConversionStrategy;
 use Shredio\TypeSchema\Conversion\ConversionStrategyFactory;
 use Shredio\TypeSchema\Enum\ExtraKeysBehavior;
+use Shredio\TypeSchema\Error\ErrorCategory;
 use Shredio\TypeSchema\Error\ErrorElement;
 use Shredio\TypeSchema\Error\ErrorReport;
 use Shredio\TypeSchema\Error\ErrorReportConfig;
@@ -97,12 +100,28 @@ final readonly class RequestParameterMapper
 			$reports = $value->getReports(config: $this->errorReportConfig);
 			$this->checkForErrorsForPresetValues($reports, $context->getPresetValues(), $targetType);
 
-			throw new InvalidRequestException($targetType, $this->createViolations($reports, $keysToReindex));
+			throw $this->createExceptionFromReports($targetType, $reports, $keysToReindex);
 		} else if ($extraKeysError !== null) {
-			throw new InvalidRequestException($targetType, $this->createViolations($extraKeysError->getReports(), $keysToReindex));
+			throw $this->createExceptionFromReports($targetType, $extraKeysError->getReports(), $keysToReindex);
 		}
 
 		return $value;
+	}
+
+	/**
+	 * @param string|list<string> $target
+	 * @param non-empty-list<ErrorReport> $reports
+	 * @param array<non-empty-string, non-empty-string> $keysToReindex
+	 */
+	private function createExceptionFromReports(string|array $target, array $reports, array $keysToReindex = []): InvalidRequestException
+	{
+		$violations = $this->createViolations($reports, $keysToReindex);
+
+		if (ErrorCategory::hasStructural($reports)) {
+			return new StructuralRequestException($target, $violations);
+		}
+
+		return new ValidationRequestException($target, $violations);
 	}
 
 	/**
@@ -237,7 +256,7 @@ final readonly class RequestParameterMapper
 		$normalizedKey = $context->normalizeKey($discriminator->key, $location);
 
 		if (!array_key_exists($normalizedKey, $values)) {
-			throw new InvalidRequestException($originalTarget, [
+			throw new StructuralRequestException($originalTarget, [
 				new FieldViolation([$discriminator->key], ['This field is required.']),
 			]);
 		}
@@ -245,13 +264,13 @@ final readonly class RequestParameterMapper
 		$discriminatorValue = $values[$normalizedKey];
 
 		if (!is_string($discriminatorValue) && !is_int($discriminatorValue)) {
-			throw new InvalidRequestException($originalTarget, [
+			throw new StructuralRequestException($originalTarget, [
 				new FieldViolation([$discriminator->key], ['This value is not valid.']),
 			]);
 		}
 
 		if (!array_key_exists($discriminatorValue, $discriminator->mapping)) {
-			throw new InvalidRequestException($originalTarget, [
+			throw new ValidationRequestException($originalTarget, [
 				new FieldViolation([$discriminator->key], [
 					sprintf('The value you selected is not a valid choice.'),
 				]),

@@ -6,7 +6,15 @@ use Shredio\Problem\Violation\Violation;
 use Shredio\RequestMapper\Exception\RuntimeException;
 use Throwable;
 
-final class InvalidRequestException extends RuntimeException
+/**
+ * Base class for request mapping failures.
+ *
+ * Two concrete subclasses distinguish the failure kind so the application can
+ * map them to different HTTP responses:
+ * - {@see StructuralRequestException}: the input cannot be assembled into the target type (typically HTTP 400)
+ * - {@see ValidationRequestException}: the input has the right shape but violates a constraint (typically HTTP 422)
+ */
+abstract class InvalidRequestException extends RuntimeException
 {
 
 	/**
@@ -30,29 +38,38 @@ final class InvalidRequestException extends RuntimeException
 	}
 
 	/**
+	 * Merges multiple exceptions into a single one.
+	 *
+	 * A single structural failure takes precedence: if any of the given exceptions is
+	 * a {@see StructuralRequestException}, the result is structural, otherwise validation.
+	 *
 	 * @param list<self> $exceptions
-	 * @return self
 	 */
 	public static function merge(array $exceptions): self
 	{
 		$violations = [];
 		$targets = [];
 		$previous = null;
+		$isStructural = false;
 		foreach ($exceptions as $exception) {
 			$exceptionPrevious = $exception->getPrevious();
 			if ($exceptionPrevious !== null) {
 				$previous = $exceptionPrevious;
 			}
 
+			if ($exception instanceof StructuralRequestException) {
+				$isStructural = true;
+			}
+
 			$violations = array_merge($violations, $exception->violations);
 			$targets = array_merge($targets, is_array($exception->target) ? $exception->target : [$exception->target]);
 		}
 
-		return new self(
-			target: $targets,
-			violations: $violations,
-			previous: $previous,
-		);
+		if ($isStructural) {
+			return new StructuralRequestException($targets, $violations, $previous);
+		}
+
+		return new ValidationRequestException($targets, $violations, $previous);
 	}
 
 	/**
