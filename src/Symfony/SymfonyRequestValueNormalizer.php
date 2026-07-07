@@ -11,8 +11,13 @@ final readonly class SymfonyRequestValueNormalizer implements RequestValueNormal
 	public function normalize(mixed $value, RequestLocation $location): mixed
 	{
 		if ($location === RequestLocation::Header && is_array($value)) {
-			// Symfony returns headers as array, but we want single value
-			return implode(', ', $value);
+			// Symfony returns headers as array of scalars, but we want a single value
+			$parts = [];
+			foreach ($value as $item) {
+				$parts[] = is_scalar($item) ? (string) $item : '';
+			}
+
+			return implode(', ', $parts);
 		}
 
 		return $value;
